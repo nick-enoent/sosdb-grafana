@@ -20,13 +20,20 @@ AM_PATH_PYTHON([2.7])
 
 # Checks for library functions.
 
+gplugin=/var/lib/grafana/plugins/sosds
 distdir=${PACKAGE_NAME}
 AC_SUBST(prefix)
 AC_SUBST(distdir)
+AC_SUBST(gplugin)
 
 AC_CONFIG_FILES([
         Makefile
         sosgui/Makefile
         grafana/Makefile
+        sosds/Makefile
+        sosds/dist/Makefile
+        sosds/dist/css/Makefile
+        sosds/dist/img/Makefile
+        sosds/dist/partials/Makefile
         ])
 AC_OUTPUT

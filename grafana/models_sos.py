@@ -320,7 +320,7 @@ class TemplateData(SosRequest):
                 for attr in self.schema():
                     if attr.indexed() == True:
                         self.metrics[attr.name()] = attr.name()
-            else:
+            elif search_type == 'metrics':
                 for attr in self.schema():
                     self.metrics[str(attr.name())] = str(attr.name())
             return self.metrics

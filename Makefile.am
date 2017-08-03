@@ -1,7 +1,8 @@
 ACLOCAL_AMFLAGS = -I m4
 
 SUBDIRS = sosgui \
-        grafana
+        grafana \
+	sosds
 
 main_pkgdatadir = ${prefix}/
 
