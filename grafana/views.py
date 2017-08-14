@@ -22,7 +22,7 @@ class query_baler(object):
         self.index = 'timestamp'
         self.query_type = None
         self.start_time = 0
-        self.end_time = 0 
+        self.end_time = 0
         self.ptn_id = 0
         self.bin_width = 86400
 
@@ -54,7 +54,7 @@ class query_sos(object):
         self.query_source = 'sos'
         self.query_type = 'metrics'
         self.start_time = 0
-        self.end_time = 0 
+        self.end_time = 0
 
     def parse(self, request):
         try:
@@ -196,4 +196,3 @@ def metric_query(qs, comp_id):
     except Exception as e:
         log.write('metric_query error: '+repr(e))
         return HttpResponse({'metric_query error' : repr(e)})
-        

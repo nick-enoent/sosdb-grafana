@@ -24,7 +24,7 @@ def open_test(path):
         return False
 
 def SosDir():
-    """ 
+    """
     Given the SOS_ROOT, search the directory structure to find all
     of the containers available for use. Note that even if the
     directory is there, this will skip the container if the
@@ -39,17 +39,17 @@ def SosDir():
         # Check each subdirectory for files that constitute a container
         for ovc in dirs:
             try:
-                ovc_path = settings.SOS_ROOT + '/' + ovc 
+                ovc_path = settings.SOS_ROOT + '/' + ovc
                 try:
                     files = os.listdir(ovc_path)
                     if '.__schemas.OBJ' in files:
                         if open_test(ovc_path):
-                            rows.append( ovc ) 
+                            rows.append( ovc )
                 except Exception as e:
                     log.write(e)
             except Exception as e:
                 log.write(e)
-        return rows 
+        return rows
     except Exception as e:
         # return render.table_json('directory', [ 'name' ], [], 0)
         return SosErrorReply(e)
@@ -127,7 +127,7 @@ class SosRequest(object):
             pass
 
 class SosContainer(SosRequest):
-    """ 
+    """
     Build up a container object that includes the container's schema,
     indexes and partitions
     """
@@ -171,7 +171,7 @@ class SosContainer(SosRequest):
             return SosErrorReply(e)
 
 class SosSchema(SosRequest):
-    """ 
+    """
     Return all of the attributes and attribute meta-data for the
     specified schema.
     """
@@ -251,13 +251,13 @@ class SosTable(SosQuery):
                         try:
                             a_name = self.met_lst[str(attr_name)]
                         except:
-                            return [{ 'target':'Comp iD '+str(comp_id)+' '+i+' metric does not exist in schema', 'datapoints': [] }]
+                            return [{ 'target':'Comp ID '+str(comp_id)+' '+attr_name+' metric does not exist in schema', 'datapoints': [] }]
                         self.view_cols.append(a_name)
             else:
                 for attr in self.schema():
                     if attr.name() != self.index_name:
                         self.view_cols.append(attr.name())
-    
+
             obj = None
             if self.start == 0:
                 obj = self.filt.begin()
@@ -300,7 +300,7 @@ class TemplateData(SosRequest):
         try:
             search_type = 'metrics'
             targets = request['target'].split('&')
-            input_= Object() 
+            input_= Object()
             input_.container = targets[0]
             if len(targets) == 1:
                 self.open_container(input_)
@@ -315,14 +315,15 @@ class TemplateData(SosRequest):
                 search_type = targets[2]
             except:
                 search_type = 'metrics'
-            self.metrics = {} 
+            self.metrics = {}
             if search_type == 'index':
                 for attr in self.schema():
                     if attr.indexed() == True:
                         self.metrics[attr.name()] = attr.name()
             elif search_type == 'metrics':
                 for attr in self.schema():
-                    self.metrics[str(attr.name())] = str(attr.name())
+                    if attr.indexed() != True:
+                        self.metrics[attr.name()] = attr.name()
             return self.metrics
         except Exception as e:
             exc_a, exc_b, exc_tb = sys.exc_info()
@@ -352,7 +353,7 @@ class Derivative(SosQuery):
                 for attr in self.schema():
                     if attr.name() != self.index_name:
                         self.view_cols.append(attr.name())
-    
+
             obj = None
             if self.start == 0:
                 obj = self.filt.begin()
@@ -425,7 +426,7 @@ class LeastSquares(SosQuery):
                 for attr in self.schema():
                     if attr.name() != self.index_name:
                         self.view_cols.append(attr.name())
-    
+
             obj = None
             if self.start == 0:
                 obj = self.filt.begin()
@@ -449,7 +450,7 @@ class LeastSquares(SosQuery):
                 except:
                     return [{ 'target':'Comp ID '+str(comp_id)+' '+i, 'datapoints': [] }]
                 for t in nda[1]:
-                    t = t - nda[1][0] 
+                    t = t - nda[1][0]
                     x_diff.append(t)
                 least_sq = np.polyfit(x_diff, nda[0], 3)
                 fit_fn = np.poly1d(least_sq)
@@ -482,8 +483,9 @@ class Log(SosQuery):
         try:
             x = 0
             for i in metrics:
-               metrics[x][0] = np.log(metrics[x][0])
-               x += 1
+                if metrics[x][0] != 0:
+                    metrics[x][0] = np.log(metrics[x][0])
+                x += 1
             return metrics
         except Exception as e:
             exc_a, exc_b, exc_tb = sys.exc_info()
@@ -513,7 +515,7 @@ class BollingerBand(SosQuery):
                 for attr in self.schema():
                     if attr.name() != self.index_name:
                         self.view_cols.append(attr.name())
-    
+
             obj = None
             if self.start == 0:
                 obj = self.filt.begin()
