@@ -1,7 +1,7 @@
 from django.shortcuts import render
 from django.http import HttpResponse, Http404, HttpResponseRedirect
 from sosgui import logging, settings
-import datetime
+import datetime as dt
 import time
 import sys
 import models_sos
@@ -22,7 +22,7 @@ class query_baler(object):
         self.index = 'timestamp'
         self.query_type = None
         self.start_time = 0
-        self.end_time = 0 
+        self.end_time = 0
         self.ptn_id = 0
         self.bin_width = 86400
 
@@ -54,11 +54,21 @@ class query_sos(object):
         self.query_source = 'sos'
         self.query_type = 'metrics'
         self.start_time = 0
-        self.end_time = 0 
+        self.end_time = 0
+        self.comp_id = 0
 
     def parse(self, request):
+        if 'maxDataPoints' in request:
+            self.maxDataPoints = request['maxDataPoints']
+        else:
+            self.maxDataPoints = 1024
+        if 'interval_ms' in request:
+            self.intervalMs = request['intervalMs']
+        else:
+            self.intervalMs = 1000
         try:
             targets = request['targets']
+            self.targets = targets
             time_range = request['range']
             self.query_type = targets[0]['query_type'].encode('utf-8')
             self.container = targets[0]['container'].encode('utf-8')
@@ -80,7 +90,20 @@ class query_sos(object):
         split = t.split('T')
         t = split[0]+' '+split[1]
         t = t[:-5]
-        return int(time.mktime(datetime.datetime.strptime(t, "%Y-%m-%d %H:%M:%S").timetuple()))
+        return int(time.mktime(dt.datetime.strptime(t, "%Y-%m-%d %H:%M:%S").timetuple()))
+
+
+def renderToResult(res_list, comp_id, count, res, cols, time_col):
+    for col in range(0, len(cols)):
+        if col == time_col:
+            continue
+        if count > 0:
+            result = res[:,[col,time_col]].tolist()
+        else:
+            result = []
+        res_dict = { 'target': 'Comp ID ' + str(comp_id) + ' ' + cols[col],
+                     'datapoints' : result }
+        res_list.append(res_dict)
 
 def query(request):
     try:
@@ -99,53 +122,24 @@ def query(request):
         #        return HttpResponse('{ error : query_type not supported }', content_type='application/json')
         qs = query_sos()
         qs.parse(req)
-        if qs.query_source == 'sos':
-            jresp = []
-            if qs.query_type == 'metrics':
-                for cid in qs.comp_id.split(','):
-                    ret = metric_query(qs, cid)
-                    for i in ret:
-                        jresp.append(i)
-                jresp = json.dumps(jresp)
-                return HttpResponse(jresp, content_type='application/json')
-            elif qs.query_type == 'derivative':
-                for cid in qs.comp_id.split(','):
-                    dvx = models_sos.Derivative()
-                    ret = dvx.GET_DEV(qs, cid)
-                    for i in ret:
-                        jresp.append(i)
-                jresp = json.dumps(jresp)
-                return HttpResponse(jresp, content_type='application/json')
-            elif qs.query_type == 'least_sq':
-                for cid in qs.comp_id.split(','):
-                    least_sq = models_sos.LeastSquares()
-                    ret = least_sq.GET_LEAST_SQ(qs, cid)
-                    for i in ret:
-                        jresp.append(i)
-                jresp = json.dumps(jresp)
-                return HttpResponse(jresp, content_type='application/json')
-            elif qs.query_type == 'bollinger':
-                for cid in qs.comp_id.split(','):
-                    least_sq = models_sos.BollingerBand()
-                    ret = least_sq.GET_BOLL(qs, cid)
-                    jresp = json.dumps(ret)
-                return HttpResponse(jresp, content_type='application/json')
-            elif qs.query_type == 'log':
-                sosLog = models_sos.Log()
-                sq = models_sos.SosTable()
-                for cid in qs.comp_id.split(','):
-                    metrics = sq.GET(qs, cid)
-                    log_metrics = metrics[0]
-                    try:
-                        log_metrics['datapoints'][0]
-                    except:
-                        return metrics
-                    log_metrics['datapoints'] = sosLog.GET_LOG(log_metrics['datapoints'], cid)
-                    jresp.append(log_metrics)
-                jresp = json.dumps(jresp)
-                return HttpResponse(jresp, content_type='application/json')
-            else:
-                return HttpResponse('{ error : query_type not supported }', content_type='application/json')
+        if qs.query_source != 'sos':
+            return HttpResponse('{ error : query_source not supported }', content_type='application/json')
+
+        if qs.query_type == 'metrics':
+            model = models_sos.Metrics()
+        elif qs.query_type == 'derivative':
+            model = models_sos.Derivative()
+        elif qs.query_type == 'bollinger':
+            model = models_sos.BollingerBand()
+        else:
+            return HttpResponse('{ error : query_type not supported }', content_type='application/json')
+
+        res_list = []
+        for cid in qs.comp_id.split(','):
+            (count, res, cols, time_col) = model.getData(qs, cid)
+            renderToResult(res_list, cid, count, res, cols, time_col)
+        return HttpResponse(json.dumps(res_list), content_type='application/json')
+
     except Exception as e:
         exc_type, exc_obj, exc_tb = sys.exc_info()
         log.write('query error: '+repr(e)+' '+repr(exc_tb.tb_lineno))
@@ -196,4 +190,3 @@ def metric_query(qs, comp_id):
     except Exception as e:
         log.write('metric_query error: '+repr(e))
         return HttpResponse({'metric_query error' : repr(e)})
-        
