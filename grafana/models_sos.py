@@ -322,7 +322,10 @@ class TemplateData(SosRequest):
                         self.metrics[attr.name()] = attr.name()
             elif search_type == 'metrics':
                 for attr in self.schema():
-                    self.metrics[str(attr.name())] = str(attr.name())
+                    if attr.indexed() == True:
+                        pass
+                    else:
+                        self.metrics[str(attr.name())] = str(attr.name())
             return self.metrics
         except Exception as e:
             exc_a, exc_b, exc_tb = sys.exc_info()
