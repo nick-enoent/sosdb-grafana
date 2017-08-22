@@ -179,7 +179,6 @@ class SosSchema(SosRequest):
         try:
             query = request.GET
             self.open_container(query)
-            log.write('query '+repr(query))
         except Exception as e:
             log.write(e)
             return SosErrorReply(e)
