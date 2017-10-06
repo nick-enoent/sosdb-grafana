@@ -57,6 +57,7 @@ class query_sos(object):
         self.start_time = 0
         self.end_time = 0
         self.comp_id = 0
+        self.job_id = 0
 
     def parse(self, request):
         #if 'basicAuthUser' in request:
