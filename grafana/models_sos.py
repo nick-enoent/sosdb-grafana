@@ -1,7 +1,6 @@
 from django.db import models
 import datetime as dt
-import os
-import sys
+import os, sys, traceback
 from sosdb import Sos, bollinger
 from sosgui import settings, logging
 import numpy as np
@@ -259,6 +258,7 @@ class SosQuery(SosRequest):
         self.index_attr = self.schema().attr_by_name(self.index_name)
         self.tstamp = self.schema().attr_by_name('timestamp')
         self.comp_id_attr = self.schema().attr_by_name('component_id')
+        self.job_id_attr = self.schema().attr_by_name('job_id')
         self.iter_ = self.index_attr.index().stats()
         self.filt = Sos.Filter(self.index_attr)
         self.unique = False
@@ -295,6 +295,8 @@ class SosTable(SosQuery):
             else:
                 if comp_id != 0:
                     self.filt.add_condition(self.comp_id_attr, Sos.COND_EQ, str(comp_id))
+                if request.job_id != 0:
+                    self.filt.add_condition(self.job_id_attr, Sos.COND_EQ, str(request.job_id))
                 self.filt.add_condition(self.tstamp, Sos.COND_GE, str(self.start))
                 self.filt.add_condition(self.tstamp, Sos.COND_LE, str(self.end))
             shape = self.view_cols + [ self.tstamp.name() ]
@@ -312,8 +314,9 @@ class SosTable(SosQuery):
                 del self.filt
             exc_a, exc_b, exc_tb = sys.exc_info()
             log.write('getData: '+repr(e)+' '+repr(exc_tb.tb_lineno))
+            log.write(traceback.format_tb(exc_tb))
             self.release()
-            return None
+            return (0, [], shape, 0)
 
 class Derivative(SosTable):
     def __init__(self):
