@@ -140,6 +140,7 @@ System.register(['lodash'], function (_export, _context) {
                 schema: _this.templateSrv.replace(target.schema),
                 index: _this.templateSrv.replace(target.index),
                 comp_id: _this.templateSrv.replace(target.comp_id),
+                job_id: _this.templateSrv.replace(target.job_id),
                 query_type: _this.templateSrv.replace(target.query_type),
                 refId: target.refId,
                 hide: target.hide,

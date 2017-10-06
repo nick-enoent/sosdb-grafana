@@ -1,7 +1,6 @@
 from django.db import models
 import datetime as dt
-import os
-import sys
+import os, sys, traceback
 from sosdb import Sos, bollinger
 from sosgui import settings, logging
 import numpy as np
@@ -24,7 +23,7 @@ def open_test(path):
         return False
 
 def SosDir():
-    """ 
+    """
     Given the SOS_ROOT, search the directory structure to find all
     of the containers available for use. Note that even if the
     directory is there, this will skip the container if the
@@ -39,17 +38,17 @@ def SosDir():
         # Check each subdirectory for files that constitute a container
         for ovc in dirs:
             try:
-                ovc_path = settings.SOS_ROOT + '/' + ovc 
+                ovc_path = settings.SOS_ROOT + '/' + ovc
                 try:
                     files = os.listdir(ovc_path)
                     if '.__schemas.OBJ' in files:
                         if open_test(ovc_path):
-                            rows.append( ovc ) 
+                            rows.append( ovc )
                 except Exception as e:
                     log.write(e)
             except Exception as e:
                 log.write(e)
-        return rows 
+        return rows
     except Exception as e:
         # return render.table_json('directory', [ 'name' ], [], 0)
         return SosErrorReply(e)
@@ -101,8 +100,8 @@ class SosRequest(object):
             if self.container():
                 self.schema_ = self.container().schema_by_name(input_.schema)
         except Exception as e:
-             exc_a, exc_b, exc_tb = sys.exc_info()
-             log.write("schema error: "+repr(e)+' '+repr(exc_tb.tb_lineno))
+            exc_a, exc_b, exc_tb = sys.exc_info()
+            log.write("schema error: "+repr(e)+' '+repr(exc_tb.tb_lineno))
 
         #
         # iDisplayStart (dataTable), start
@@ -127,7 +126,7 @@ class SosRequest(object):
             pass
 
 class SosContainer(SosRequest):
-    """ 
+    """
     Build up a container object that includes the container's schema,
     indexes and partitions
     """
@@ -171,7 +170,7 @@ class SosContainer(SosRequest):
             return SosErrorReply(e)
 
 class SosSchema(SosRequest):
-    """ 
+    """
     Return all of the attributes and attribute meta-data for the
     specified schema.
     """
@@ -179,7 +178,6 @@ class SosSchema(SosRequest):
         try:
             query = request.GET
             self.open_container(query)
-            log.write('query '+repr(query))
         except Exception as e:
             log.write(e)
             return SosErrorReply(e)
@@ -191,6 +189,41 @@ class SosSchema(SosRequest):
         log.write('rows '+repr(rows))
         return rows
 
+class TemplateData(SosRequest):
+    def GET_ATTRS(self, request):
+        try:
+            search_type = 'metrics'
+            targets = request['target'].split('&')
+            input_= Object()
+            input_.container = targets[0]
+            if len(targets) == 1:
+                self.open_container(input_)
+                self.schemas = {}
+                for schema in self.container().schema_iter():
+                    self.schemas[schema.name()] = schema.name()
+                return self.schemas
+            else:
+                input_.schema = targets[1]
+                self.open_container(input_)
+            try:
+                search_type = targets[2]
+            except:
+                search_type = 'metrics'
+            self.metrics = {}
+            if search_type == 'index':
+                for attr in self.schema():
+                    if attr.indexed() == True:
+                        self.metrics[attr.name()] = attr.name()
+            elif search_type == 'metrics':
+                for attr in self.schema():
+                    if attr.indexed() != True:
+                        self.metrics[attr.name()] = attr.name()
+            return self.metrics
+        except Exception as e:
+            exc_a, exc_b, exc_tb = sys.exc_info()
+            log.write('TemplateData Err: '+repr(e)+' '+repr(exc_tb.tb_lineno))
+            return {'TemplateData Err' : repr(e)+repr(exc_tb.tb_lineno) }
+
 class SosQuery(SosRequest):
     """
     This is the base class for the SosTable class. It handles all of
@@ -198,7 +231,7 @@ class SosQuery(SosRequest):
     the first matching element, etc.
     """
     def __init__(self):
-        super( SosQuery, self ).__init__()
+        SosRequest.__init__(self)
         self.filt = None
 
     def parse_query(self, request):
@@ -214,6 +247,8 @@ class SosQuery(SosRequest):
         if not self.parms.index:
             return (1, "An 'index' clause must be specified.\n", None)
 
+        self.maxDataPoints = int(request.maxDataPoints)
+        self.intervalMs = float(request.intervalMs)
         #
         # Open an iterator on the container
         #
@@ -223,6 +258,7 @@ class SosQuery(SosRequest):
         self.index_attr = self.schema().attr_by_name(self.index_name)
         self.tstamp = self.schema().attr_by_name('timestamp')
         self.comp_id_attr = self.schema().attr_by_name('component_id')
+        self.job_id_attr = self.schema().attr_by_name('job_id')
         self.iter_ = self.index_attr.index().stats()
         self.filt = Sos.Filter(self.index_attr)
         self.unique = False
@@ -232,115 +268,12 @@ class SosQuery(SosRequest):
         return (0, None)
 
 class SosTable(SosQuery):
-    def GET(self, request, comp_id):
+    def __init__(self):
+        SosQuery.__init__(self)
+
+    def getData(self, request, comp_id):
         try:
             self.parse_query(request)
-            #if rc != 0:
-            #    return SosErrorReply(msg)
-            #
-            # Parse the select clause. The view_cols contains the index as it's first element.
-            #
-            self.view_cols = []
-            self.met_lst = {}
-            for attr in self.schema():
-                self.met_lst[str(attr.name())] = str(attr.name())
-            if self.parms.metric_select:
-                self.metric_select = self.parms.metric_select
-                for attr_name in self.metric_select.split(','):
-                    if attr_name != self.index_name:
-                        try:
-                            a_name = self.met_lst[str(attr_name)]
-                        except:
-                            return [{ 'target':'Comp iD '+str(comp_id)+' '+i+' metric does not exist in schema', 'datapoints': [] }]
-                        self.view_cols.append(a_name)
-            else:
-                for attr in self.schema():
-                    if attr.name() != self.index_name:
-                        self.view_cols.append(attr.name())
-    
-            obj = None
-            if self.start == 0:
-                obj = self.filt.begin()
-                skip = self.start
-            else:
-                skip = float(self.end)
-                self.filt.add_condition(self.comp_id_attr, Sos.COND_EQ, comp_id)
-                self.filt.add_condition(self.tstamp, Sos.COND_GE, str(self.start))
-                self.filt.add_condition(self.tstamp, Sos.COND_LE, str(self.end))
-                #while obj and skip > obj.timestamp:
-                #    obj = self.filt.next()
-            ret_list = []
-            for i in self.view_cols:
-                attr_dict = {}
-                max_count = 100000
-                count, nda = self.filt.as_ndarray(max_count, shape=[i,self.index_name], order='index')
-                nda_lst = nda[0:count-1].tolist()
-                try:
-                    nda_lst[1][0]
-                except:
-                    return [{ 'target':'Comp iD '+str(comp_id)+' '+i, 'datapoints': [] }]
-                for t in nda_lst:
-                    t[1] = t[1] * 1000
-                attr_dict = { 'target': 'Comp ID '+str(comp_id)+' '+i, 'datapoints' : nda_lst }
-                ret_list.append(attr_dict)
-            if self.filt:
-                del self.filt
-            self.release()
-            return ret_list
-        except Exception as e:
-            if self.filt:
-                del self.filt
-            exc_a, exc_b, exc_tb = sys.exc_info()
-            log.write('SosTable Err: '+repr(e)+' '+repr(exc_tb.tb_lineno))
-            self.release()
-            return SosErrorReply(e)
-
-class TemplateData(SosRequest):
-    def GET_ATTRS(self, request):
-        try:
-            search_type = 'metrics'
-            targets = request['target'].split('&')
-            input_= Object() 
-            input_.container = targets[0]
-            if len(targets) == 1:
-                self.open_container(input_)
-                self.schemas = {}
-                for schema in self.container().schema_iter():
-                    self.schemas[schema.name()] = schema.name()
-                return self.schemas
-            else:
-                input_.schema = targets[1]
-                self.open_container(input_)
-            try:
-                search_type = targets[2]
-            except:
-                search_type = 'metrics'
-            self.metrics = {} 
-            if search_type == 'index':
-                for attr in self.schema():
-                    if attr.indexed() == True:
-                        self.metrics[attr.name()] = attr.name()
-            elif search_type == 'metrics':
-                for attr in self.schema():
-                    if attr.indexed() == True:
-                        pass
-                    else:
-                        self.metrics[str(attr.name())] = str(attr.name())
-            return self.metrics
-        except Exception as e:
-            exc_a, exc_b, exc_tb = sys.exc_info()
-            log.write('TemplateData Err: '+repr(e)+' '+repr(exc_tb.tb_lineno))
-            return {'TemplateData Err' : repr(e)+repr(exc_tb.tb_lineno) }
-
-class Derivative(SosQuery):
-    def GET_DEV(self, request, comp_id):
-        try:
-            self.parse_query(request)
-            #if rc != 0:
-            #    return SosErrorReply(msg)
-            #
-            # Parse the select clause. The view_cols contains the index as it's first element.
-            #
             self.view_cols = []
             self.met_lst = {}
             for attr in self.schema():
@@ -355,245 +288,91 @@ class Derivative(SosQuery):
                 for attr in self.schema():
                     if attr.name() != self.index_name:
                         self.view_cols.append(attr.name())
-    
+
             obj = None
             if self.start == 0:
                 obj = self.filt.begin()
-                skip = self.start
             else:
-                skip = float(self.end)
-                self.filt.add_condition(self.comp_id_attr, Sos.COND_EQ, str(comp_id))
+                if comp_id != 0:
+                    self.filt.add_condition(self.comp_id_attr, Sos.COND_EQ, str(comp_id))
+                if request.job_id != 0:
+                    self.filt.add_condition(self.job_id_attr, Sos.COND_EQ, str(request.job_id))
                 self.filt.add_condition(self.tstamp, Sos.COND_GE, str(self.start))
                 self.filt.add_condition(self.tstamp, Sos.COND_LE, str(self.end))
-
-            ret_list = []
-            for i in self.view_cols:
-                dvx_lst = []
-                attr_dict = {}
-                max_count = 1024
-                count, nda = self.filt.as_ndarray(max_count, shape=[i,self.index_name], order='attribute')
-                if count < max_count:
-                    nda = nda[:,range(count)].copy()
-                k=0
-                try:
-                    nda[1][k]
-                except:
-                    return [{ 'target':'Comp ID '+str(comp_id)+' '+i, 'datapoints' : [] }]
-                for t in nda[1]:
-                    nda[1][k] = nda[1][k] * 1000
-                    k += 1
-                dvx_lst = np.gradient(nda[0])
-                k = 0
-                retLst = []
-                for d in dvx_lst:
-                    tup = []
-                    tup.append(d)
-                    tup.append(nda[1][k])
-                    retLst.append(tup)
-                    k += 1
-                attr_dict = { 'target': 'Comp ID '+str(comp_id)+' '+i, 'datapoints' : retLst }
-                ret_list.append(attr_dict)
+            shape = self.view_cols + [ self.tstamp.name() ]
+            time_col = len(self.view_cols)
+            count, nda = self.filt.as_ndarray(self.maxDataPoints,
+                                              shape=shape,
+                                              order='index',
+                                              interval_ms=self.intervalMs)
             if self.filt:
                 del self.filt
             self.release()
-            return ret_list
+            return (count, nda, shape, time_col)
         except Exception as e:
             if self.filt:
                 del self.filt
             exc_a, exc_b, exc_tb = sys.exc_info()
-            log.write('Derivative Err: '+repr(e)+' '+repr(exc_tb.tb_lineno))
+            log.write('getData: '+repr(e)+' '+repr(exc_tb.tb_lineno))
+            log.write(traceback.format_tb(exc_tb))
             self.release()
-            return SosErrorReply(e)
+            return (0, [], shape, 0)
 
-class LeastSquares(SosQuery):
-    def GET_LEAST_SQ(self, request, comp_id):
-        try:
-            self.parse_query(request)
-            #if rc != 0:
-            #    return SosErrorReply(msg)
-            #
-            # Parse the select clause. The view_cols contains the index as it's first element.
-            #
-            self.view_cols = []
-            self.met_lst = {}
-            for attr in self.schema():
-                self.met_lst[str(attr.name())] = str(attr.name())
-            if self.parms.metric_select:
-                self.metric_select = self.parms.metric_select
-                for attr_name in self.metric_select.split(','):
-                    if attr_name != self.index_name:
-                        a_name = self.met_lst[str(attr_name)]
-                        self.view_cols.append(a_name)
-            else:
-                for attr in self.schema():
-                    if attr.name() != self.index_name:
-                        self.view_cols.append(attr.name())
-    
-            obj = None
-            if self.start == 0:
-                obj = self.filt.begin()
-                skip = self.start
-            else:
-                skip = float(self.end)
-                self.filt.add_condition(self.comp_id_attr, Sos.COND_EQ, str(comp_id))
-                self.filt.add_condition(self.tstamp, Sos.COND_GE, str(self.start))
-                self.filt.add_condition(self.tstamp, Sos.COND_LE, str(self.end))
-            ret_list = []
-            log.write('view_cols: '+repr(self.view_cols))
-            for i in self.view_cols:
-                attr_dict = {}
-                max_count = 1024
-                count, nda = self.filt.as_ndarray(max_count, shape=[i,self.index_name], order='attribute')
-                if count < max_count:
-                    nda = nda[:,range(count)].copy()
-                x_diff = []
-                try:
-                    nda[1][0]
-                except:
-                    return [{ 'target':'Comp ID '+str(comp_id)+' '+i, 'datapoints': [] }]
-                for t in nda[1]:
-                    t = t - nda[1][0] 
-                    x_diff.append(t)
-                least_sq = np.polyfit(x_diff, nda[0], 3)
-                fit_fn = np.poly1d(least_sq)
-                k = 0
-                retLst = []
-                for d in x_diff:
-                    tup = []
-                    ysq = fit_fn(d)
-                    tup.append(ysq)
-                    tup.append(nda[1][k]*1000)
-                    retLst.append(tup)
-                    k += 1
-                attr_dict = { 'target': 'Comp ID '+str(comp_id)+' '+i, 'datapoints' : retLst }
-                ret_list.append(attr_dict)
-            if self.filt:
-                del self.filt
-            log.write('del self.filt')
-            self.release()
-            return ret_list
-        except Exception as e:
-            if self.filt:
-                del self.filt
-            exc_a, exc_b, exc_tb = sys.exc_info()
-            log.write('LeastSquares Err: '+repr(e)+' '+repr(exc_tb.tb_lineno))
-            self.release()
-            return SosErrorReply(e)
+class Derivative(SosTable):
+    def __init__(self):
+        SosTable.__init__(self)
 
-class Log(SosQuery):
-    def GET_LOG(self, metrics, comp_id):
-        try:
-            x = 0
-            for i in metrics:
-               metrics[x][0] = np.log(metrics[x][0])
-               x += 1
-            return metrics
-        except Exception as e:
-            exc_a, exc_b, exc_tb = sys.exc_info()
-            log.write('Log Err: '+repr(e)+' '+repr(exc_tb.tb_lineno))
-            return SosErrorReply(e)
+    def getData(self, request, comp_id):
+        (count, data, cols, time_col) = SosTable.getData(self, request, comp_id)
+        if count > 0:
+            res = data[0:count]
+            res[:,time_col] *= 1000 # scale seconds to miliseconds
+            for col in range(0, len(cols)):
+                if col == time_col:
+                    continue
+                res[:,col] = np.gradient(res[:,col])
+        else:
+            res = []
+        return (count, res, cols, time_col)
 
-class BollingerBand(SosQuery):
-    def GET_BOLL(self, request, comp_id):
-        try:
-            self.parse_query(request)
-            #if rc != 0:
-            #    return SosErrorReply(msg)
-            #
-            # Parse the select clause. The view_cols contains the index as it's first element.
-            #
-            self.view_cols = []
-            self.met_lst = {}
-            for attr in self.schema():
-                self.met_lst[str(attr.name())] = str(attr.name())
-            if self.parms.metric_select:
-                self.metric_select = self.parms.metric_select
-                for attr_name in self.metric_select.split(','):
-                    if attr_name != self.index_name:
-                        a_name = self.met_lst[str(attr_name)]
-                        self.view_cols.append(a_name)
-            else:
-                for attr in self.schema():
-                    if attr.name() != self.index_name:
-                        self.view_cols.append(attr.name())
-    
-            obj = None
-            if self.start == 0:
-                obj = self.filt.begin()
-                skip = self.start
-            else:
-                skip = float(self.end)
-                self.filt.add_condition(self.comp_id_attr, Sos.COND_EQ, str(comp_id))
-                self.filt.add_condition(self.tstamp, Sos.COND_GE, str(self.start))
-                self.filt.add_condition(self.tstamp, Sos.COND_LE, str(self.end))
+class Metrics(SosTable):
+    def __init__(self):
+        SosTable.__init__(self)
 
-            ret_list = []
-            for i in self.view_cols:
-                attr_dict = {}
-                max_count = 1024
-                count, nda = self.filt.as_ndarray(max_count, shape=[i,self.index_name], order='attribute')
-                if count < max_count:
-                    nda = nda[:,range(count)].copy()
-                k=0
-                # nda[0] = metric values
-                # nda[1] = timestamps
-                try:
-                    nda[1][k]
-                except:
-                    return [{ 'target':'Comp ID  '+str(comp_id)+' '+i, 'datapoints':[] }]
-                for t in nda[1]:
-                    nda[1][k] = nda[1][k] * 1000
-                    k += 1
-                b = bollinger.Bollinger_band()
-                boll_dict = b.calculate(nda[1], nda[0])
-                k = 60
-                retLst = []
-                upper = boll_dict['upperband']
-                lower = boll_dict['lowerband']
-                ma = boll_dict['ma']
-                upperband = []
-                lowerband = []
-                moving_avg = []
-                for d in upper:
-                    tup = []
-                    up = []
-                    tup.append(nda[0][k])
-                    tup.append(nda[1][k])
-                    up.append(d)
-                    up.append(nda[1][k])
-                    upperband.append(up)
-                    retLst.append(tup)
-                    k += 1
-                k = 60
-                for d in lower:
-                    low = []
-                    low.append(d)
-                    low.append(nda[1][k])
-                    lowerband.append(low)
-                    k += 1
-                k = 60
-                for d in ma:
-                    mova = []
-                    mova.append(d)
-                    mova.append(nda[1][k])
-                    moving_avg.append(mova)
-                    k += 1
-                attr_dict = { 'target': 'Comp ID '+str(comp_id)+' '+i, 'datapoints' : retLst }
-                ret_list.append(attr_dict)
-                ret_list.append({ 'target' : 'Upper Band', 'datapoints' : upperband })
-                ret_list.append({ 'target' : 'Lower Band', 'datapoints' : lowerband })
-                ret_list.append({ 'target' : 'Moving Avg', 'datapoints' : moving_avg })
-            if self.filt:
-                del self.filt
-            self.release()
-            return ret_list
-        except Exception as e:
-            if self.filt:
-                del self.filt
-            exc_a, exc_b, exc_tb = sys.exc_info()
-            log.write('BollBand Err: '+repr(e)+' '+repr(exc_tb.tb_lineno))
-            self.release()
-            return SosErrorReply(e)
+    def getData(self, request, comp_id):
+        (count, data, cols, time_col) = SosTable.getData(self, request, comp_id)
+        if count > 0:
+            res = data[0:count]
+            res[:,time_col] *= 1000 # scale seconds to miliseconds
+        else:
+            res = []
+        return (count, res, cols, time_col)
+
+class BollingerBand(SosTable):
+    def __init__(self):
+        SosTable.__init__(self)
+
+    def getData(self, request, comp_id):
+        (count, data, cols, time_col) = SosTable.getData(self, request, comp_id)
+        if count > 0:
+            res = data[0:count]
+            res[:,time_col] *= 1000 # scale seconds to miliseconds
+            b = bollinger.Bollinger_band()
+            bb = b.calculate(res[:,1], res[:,0])
+            lres = len(bb['upperband'])
+            bbres = np.ndarray([lres, 5])
+            win = bb['window']
+            cols = ['ma', 'upper', 'lower', cols[0], 'timestamp']
+            bbres[:,0] = bb['ma']
+            bbres[:,1] = bb['upperband']
+            bbres[:,2] = bb['lowerband']
+            bbres[:,3] = res[win:lres+win,0]
+            bbres[:,4] = res[win:lres+win,1]
+            count = lres
+        else:
+            bbres = []
+        return (count, bbres, cols, 4)
+
 '''
 
 class IndexAttrs(SosRequest):
