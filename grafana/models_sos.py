@@ -123,7 +123,7 @@ class SosRequest(object):
         try:
             self.job_id = int(input_.job_id)
         except Exception as e:
-            pass
+            self.job_id = 0
 
 class SosContainer(SosRequest):
     """
@@ -271,7 +271,7 @@ class SosTable(SosQuery):
     def __init__(self):
         SosQuery.__init__(self)
 
-    def getData(self, request, comp_id):
+    def getData(self, request, job_id, comp_id):
         try:
             self.parse_query(request)
             self.view_cols = []
@@ -294,13 +294,15 @@ class SosTable(SosQuery):
                 obj = self.filt.begin()
             else:
                 if comp_id != 0:
+                    print("Setting the comp_id filter condition to {0}".format(comp_id))
                     self.filt.add_condition(self.comp_id_attr, Sos.COND_EQ, str(comp_id))
-                if request.job_id != 0:
-                    self.filt.add_condition(self.job_id_attr, Sos.COND_EQ, str(request.job_id))
+                if job_id != 0:
+                    print("Setting the job_id filter condition for job_id {0}".format(job_id))
+                    self.filt.add_condition(self.job_id_attr, Sos.COND_EQ, str(job_id))
                 self.filt.add_condition(self.tstamp, Sos.COND_GE, str(self.start))
                 self.filt.add_condition(self.tstamp, Sos.COND_LE, str(self.end))
-            shape = self.view_cols + [ self.tstamp.name() ]
-            time_col = len(self.view_cols)
+            shape = [ self.tstamp.name() ] + self.view_cols
+            time_col = 0
             count, nda = self.filt.as_ndarray(self.maxDataPoints,
                                               shape=shape,
                                               order='index',
@@ -322,11 +324,11 @@ class Derivative(SosTable):
     def __init__(self):
         SosTable.__init__(self)
 
-    def getData(self, request, comp_id):
-        (count, data, cols, time_col) = SosTable.getData(self, request, comp_id)
+    def getData(self, request, job_id, comp_id):
+        (count, data, cols, time_col) = SosTable.getData(self, request, job_id, comp_id)
         if count > 0:
             res = data[0:count]
-            res[:,time_col] *= 1000 # scale seconds to miliseconds
+            res[:,time_col] *= 1000 # scale seconds to milliseconds
             for col in range(0, len(cols)):
                 if col == time_col:
                     continue
@@ -339,11 +341,11 @@ class Metrics(SosTable):
     def __init__(self):
         SosTable.__init__(self)
 
-    def getData(self, request, comp_id):
-        (count, data, cols, time_col) = SosTable.getData(self, request, comp_id)
+    def getData(self, request, job_id, comp_id):
+        (count, data, cols, time_col) = SosTable.getData(self, request, job_id, comp_id)
         if count > 0:
             res = data[0:count]
-            res[:,time_col] *= 1000 # scale seconds to miliseconds
+            res[:,time_col] *= 1000 # scale seconds to milliseconds
         else:
             res = []
         return (count, res, cols, time_col)
@@ -352,26 +354,26 @@ class BollingerBand(SosTable):
     def __init__(self):
         SosTable.__init__(self)
 
-    def getData(self, request, comp_id):
-        (count, data, cols, time_col) = SosTable.getData(self, request, comp_id)
+    def getData(self, request, job_id, comp_id):
+        (count, data, cols, time_col) = SosTable.getData(self, request, job_id, comp_id)
         if count > 0:
             res = data[0:count]
-            res[:,time_col] *= 1000 # scale seconds to miliseconds
+            res[:,time_col] *= 1000 # scale seconds to milliseconds
             b = bollinger.Bollinger_band()
             bb = b.calculate(res[:,1], res[:,0])
             lres = len(bb['upperband'])
             bbres = np.ndarray([lres, 5])
             win = bb['window']
-            cols = ['ma', 'upper', 'lower', cols[0], 'timestamp']
-            bbres[:,0] = bb['ma']
-            bbres[:,1] = bb['upperband']
-            bbres[:,2] = bb['lowerband']
-            bbres[:,3] = res[win:lres+win,0]
+            cols = ['timestamp', 'ma', 'upper', 'lower', cols[1]]
+            bbres[:,0] = res[win:lres+win,0]
+            bbres[:,1] = bb['ma']
+            bbres[:,2] = bb['upperband']
+            bbres[:,3] = bb['lowerband']
             bbres[:,4] = res[win:lres+win,1]
             count = lres
         else:
             bbres = []
-        return (count, bbres, cols, 4)
+        return (count, bbres, cols, time_col)
 
 '''
 

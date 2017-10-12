@@ -11,3 +11,9 @@ Install Dependencies:
     SOS
     sosds (Grafana datasource for SOS)
     Grafana
+
+Annotations
+============
+
+Query format is as such:
+	store&ptn_id&job_id&comp_id
