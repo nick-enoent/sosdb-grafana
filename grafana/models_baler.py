@@ -104,26 +104,15 @@ def BqMessageQuery(req):
                 break
             msg_obj = {}
             tkn_list = []
-            comp_tkn = bs.tkn_by_id(m.comp_id())
-            comp_obj = {}
-            comp_obj['tkn_text'] = comp_tkn.tkn_str()
-            comp_obj['tkn_count'] = comp_tkn.tkn_count()
-            comp_obj['tkn_type_mask'] = comp_tkn.type_mask()
-            comp_obj['tkn_id'] = m.comp_id()
             for tkn in m:
                 tkn_obj = {}
-                #tkn_str = tkn.tkn_str()
-                tkn_str = fmt_tkn_str(tkn)
+                tkn_str = tkn.tkn_str()
                 tkn_obj['tkn_text'] = tkn.tkn_str()
-                tkn_obj['tkn_count'] = tkn.tkn_count()
-                tkn_obj['tkn_type_mask'] = tkn.type_mask()
-                tkn_obj['tkn_id'] = tkn.tkn_id()
                 tkn_list.append(tkn_obj)
             msg_obj['ptn_id'] = m.ptn_id()
             msg_obj['comp_id'] = m.comp_id()
             msg_obj['timestamp'] = m.tv_sec()
             msg_obj['tkn_list'] = tkn_list
-            msg_obj['host'] = comp_obj
             msg_list.append(msg_obj)
         if mi:
             del mi
@@ -148,9 +137,9 @@ def MsgAnnotations(request):
                 tkn_str += str(t['tkn_text'])
             obj['annotation'] = request.annotation
             obj["text"] = tkn_str
-            obj["tags"] =  "error, msg"
+            obj["tags"] =  "comp_id "+repr(m['comp_id'])
             obj["time"] = m["timestamp"] * 1000
-            obj["title"] = "Log Message"
+            obj["title"] = "Pattern ID "+repr(m['ptn_id'])
             annotations.append(obj)
         return annotations
     except Exception as e:
