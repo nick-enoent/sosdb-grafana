@@ -137,9 +137,9 @@ def MsgAnnotations(request):
                 tkn_str += str(t['tkn_text'])
             obj['annotation'] = request.annotation
             obj["text"] = tkn_str
-            obj["tags"] =  "comp_id "+repr(m['comp_id'])
+            obj["tags"] =  "comp_id "+repr(int(m['comp_id']))
             obj["time"] = m["timestamp"] * 1000
-            obj["title"] = "Pattern ID "+repr(m['ptn_id'])
+            obj["title"] = "Pattern ID "+repr(int(m['ptn_id']))
             annotations.append(obj)
         return annotations
     except Exception as e:
