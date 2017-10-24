@@ -11,7 +11,7 @@ class Object(object):
     pass
 
 def SosErrorReply(err):
-    return { "error" : "{0}".format(str(err)) }
+    return { "error" : repr(err) }
 
 def open_test(path):
     try:
@@ -100,8 +100,9 @@ class SosRequest(object):
             if self.container():
                 self.schema_ = self.container().schema_by_name(input_.schema)
         except Exception as e:
+            self.schema_ = None
             exc_a, exc_b, exc_tb = sys.exc_info()
-            log.write("schema error: "+repr(e)+' '+repr(exc_tb.tb_lineno))
+            log.write('schema error: '+repr(e)+' '+repr(exc_tb.tb_lineno))
 
         #
         # iDisplayStart (dataTable), start
@@ -215,6 +216,8 @@ class TemplateData(SosRequest):
                     if attr.indexed() == True:
                         self.metrics[attr.name()] = attr.name()
             elif search_type == 'metrics':
+                if not self.schema():
+                    return {'"Error": "Error, Schema does not exist in container"'}
                 for attr in self.schema():
                     if attr.indexed() != True:
                         self.metrics[attr.name()] = attr.name()
@@ -276,6 +279,10 @@ class SosTable(SosQuery):
             self.parse_query(request)
             self.view_cols = []
             self.met_lst = {}
+            #if not self.schema().name():
+            #    return (0, {'"target": "Error", "datapoints" : [0,"'+repr(e)+'"]'}, None, 0)
+            if not self.schema():
+                return ('err', {'"target": "Schema does not exist in container", "datapoints" : []'}, None, 0)
             for attr in self.schema():
                 self.met_lst[str(attr.name())] = str(attr.name())
             if self.parms.metric_select:
@@ -318,7 +325,7 @@ class SosTable(SosQuery):
             log.write('getData: '+repr(e)+' '+repr(exc_tb.tb_lineno))
             log.write(traceback.format_tb(exc_tb))
             self.release()
-            return (0, [], shape, 0)
+            return ('err', {"target": +repr(e), "datapoints" : []}, None, 0)
 
 class Derivative(SosTable):
     def __init__(self):

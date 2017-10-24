@@ -219,13 +219,16 @@ def query(request):
                     except:
                         cid = 0
                     (count, res, cols, time_col) = model.getData(qs, jid, cid)
+                    if count == 'err':
+                        log.write('res '+repr(res))
+                        return HttpResponse(json.dumps(res), content_type='application/json')
                     renderToResult(res_list, jid, cid, count, res, cols, time_col)
         return HttpResponse(json.dumps(res_list), content_type='application/json')
 
     except Exception as e:
         exc_type, exc_obj, exc_tb = sys.exc_info()
         log.write('query error: '+repr(e)+' '+repr(exc_tb.tb_lineno))
-        return HttpResponse('{"error" : '+'"' + repr(e) + '"}', content_type='application/json')
+        return HttpResponse(json.dumps([{"target": repr(e), "datapoints" : []}]), content_type='application_json')
 
 def search(request):
     try:
@@ -236,7 +239,7 @@ def search(request):
         return HttpResponse(jresp, content_type='application/json')
     except Exception as e:
         log.write('search error: '+repr(e))
-        return HttpResponse({'error: '+repr(e)}, content_type='application/json')
+        return HttpResponse('{"error" : '+'"' + repr(e) + '"}', content_type='application/json')
 
 def annotations(request):
     try:
