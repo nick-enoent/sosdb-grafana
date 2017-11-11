@@ -61,7 +61,7 @@ class annotation_query(object):
             self.annotation = request['annotation']
             self.ann_query = self.annotation['query'].split('&')
             self.store = self.ann_query[0]
-            self.ptn_id = int(self.ann_query[1])
+            self.ptn_id = self.ann_query[1].split(",")
             self.job_id = int(self.ann_query[2])
             self.comp_id = int(self.ann_query[3])
             self.start_time = format_time(time_range['from'].encode('utf-8'))
@@ -70,7 +70,7 @@ class annotation_query(object):
         except Exception as e:
             exc_type, exc_obj, exc_tb = sys.exc_info()
             log.write('annotation parse error: '+repr(e)+' '+repr(exc_tb.tb_lineno))
-            return HttpResponse({'annotation parse err: '+repr(e)}, content_type='application/json')
+            return HttpResponse({'annotation parse err: '+str(e)}, content_type='application/json')
 
 
 class query_sos(object):
@@ -130,7 +130,7 @@ class query_sos(object):
         except Exception as e:
             exc_type, exc_obj, exc_tb = sys.exc_info()
             log.write('parse error: '+repr(e)+' '+repr(exc_tb.tb_lineno))
-            return HttpResponse({'parse err: '+repr(e)}, content_type='application/json')
+            return HttpResponse({'parse err: '+str(e)}, content_type='application/json')
 
 def format_time(t):
     split = t.split('T')
@@ -221,6 +221,7 @@ def query(request):
                     (count, res, cols, time_col) = model.getData(qs, jid, cid)
                     if count == 'err':
                         log.write('res '+repr(res))
+                        res = str(res)
                         return HttpResponse(json.dumps(res), content_type='application/json')
                     renderToResult(res_list, jid, cid, count, res, cols, time_col)
         return HttpResponse(json.dumps(res_list), content_type='application/json')
@@ -228,7 +229,7 @@ def query(request):
     except Exception as e:
         exc_type, exc_obj, exc_tb = sys.exc_info()
         log.write('query error: '+repr(e)+' '+repr(exc_tb.tb_lineno))
-        return HttpResponse(json.dumps([{"target": repr(e), "datapoints" : []}]), content_type='application_json')
+        return HttpResponse(json.dumps({"target": str(e), "datapoints" : []}), content_type='application_json')
 
 def search(request):
     try:
@@ -239,7 +240,7 @@ def search(request):
         return HttpResponse(jresp, content_type='application/json')
     except Exception as e:
         log.write('search error: '+repr(e))
-        return HttpResponse('{"error" : '+'"' + repr(e) + '"}', content_type='application/json')
+        return HttpResponse('{"error" : '+'"' + str(e) + '"}', content_type='application/json')
 
 def annotations(request):
     try:
@@ -252,7 +253,7 @@ def annotations(request):
     except Exception as e:
         a, b, exc_tb = sys.exc_info()
         log.write('annotation err '+repr(e)+' '+repr(exc_tb.tb_lineno))
-        return HttpResponse({'err: '+repr(e)}, content_type='application/json')
+        return HttpResponse({'err: '+str(e)}, content_type='application/json')
 '''
 def ptn_hist(qb):
     try:
@@ -286,4 +287,4 @@ def metric_query(qs, comp_id):
         return resp
     except Exception as e:
         log.write('metric_query error: '+repr(e))
-        return HttpResponse('{ "error":'+'"'+repr(e)+'"}"')
+        return HttpResponse('{ "error":'+'"'+str(e)+'"}"')

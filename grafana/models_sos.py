@@ -103,6 +103,7 @@ class SosRequest(object):
             self.schema_ = None
             exc_a, exc_b, exc_tb = sys.exc_info()
             log.write('schema error: '+repr(e)+' '+repr(exc_tb.tb_lineno))
+            return { "Schema Error" : "Schema does not exist in Container" }
 
         #
         # iDisplayStart (dataTable), start
@@ -225,7 +226,7 @@ class TemplateData(SosRequest):
         except Exception as e:
             exc_a, exc_b, exc_tb = sys.exc_info()
             log.write('TemplateData Err: '+repr(e)+' '+repr(exc_tb.tb_lineno))
-            return {'TemplateData Err' : repr(e)+repr(exc_tb.tb_lineno) }
+            return {'TemplateData Err' : str(e) }
 
 class SosQuery(SosRequest):
     """
@@ -282,7 +283,7 @@ class SosTable(SosQuery):
             #if not self.schema().name():
             #    return (0, {'"target": "Error", "datapoints" : [0,"'+repr(e)+'"]'}, None, 0)
             if not self.schema():
-                return ('err', {'"target": "Schema does not exist in container", "datapoints" : []'}, None, 0)
+                return ('err', '{"target": "Schema does not exist in container", "datapoints" : [] }', None, 0)
             for attr in self.schema():
                 self.met_lst[str(attr.name())] = str(attr.name())
             if self.parms.metric_select:
@@ -325,7 +326,7 @@ class SosTable(SosQuery):
             log.write('getData: '+repr(e)+' '+repr(exc_tb.tb_lineno))
             log.write(traceback.format_tb(exc_tb))
             self.release()
-            return ('err', {"target": +repr(e), "datapoints" : []}, None, 0)
+            return ('err', {"target": +str(e), "datapoints" : []}, None, 0)
 
 class Derivative(SosTable):
     def __init__(self):

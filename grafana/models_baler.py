@@ -97,23 +97,24 @@ def BqMessageQuery(req):
     try:
         messages = {}
         msg_list = []
-        mi = Bq.Bmsg_iter(bs)
-        mi.set_filter(comp_id=req.comp_id, ptn_id=req.ptn_id, tv_begin=(req.start_time,0),tv_end=(req.end_time,0))
-        for m in mi:
-            if req.end_time > 0 and m.tv_sec() > req.end_time:
-                break
-            msg_obj = {}
-            tkn_list = []
-            for tkn in m:
-                tkn_obj = {}
-                tkn_str = tkn.tkn_str()
-                tkn_obj['tkn_text'] = tkn.tkn_str()
-                tkn_list.append(tkn_obj)
-            msg_obj['ptn_id'] = m.ptn_id()
-            msg_obj['comp_id'] = m.comp_id()
-            msg_obj['timestamp'] = m.tv_sec()
-            msg_obj['tkn_list'] = tkn_list
-            msg_list.append(msg_obj)
+        for ptnid in req.ptn_id:
+            mi = Bq.Bmsg_iter(bs)
+            mi.set_filter(comp_id=req.comp_id, ptn_id=int(ptnid), tv_begin=(req.start_time,0),tv_end=(req.end_time,0))
+            for m in mi:
+                if req.end_time > 0 and m.tv_sec() > req.end_time:
+                    break
+                msg_obj = {}
+                tkn_list = []
+                for tkn in m:
+                    tkn_obj = {}
+                    tkn_str = tkn.tkn_str()
+                    tkn_obj['tkn_text'] = tkn.tkn_str()
+                    tkn_list.append(tkn_obj)
+                msg_obj['ptn_id'] = m.ptn_id()
+                msg_obj['comp_id'] = m.comp_id()
+                msg_obj['timestamp'] = m.tv_sec()
+                msg_obj['tkn_list'] = tkn_list
+                msg_list.append(msg_obj)
         if mi:
             del mi
         bs.close()
@@ -124,7 +125,7 @@ def BqMessageQuery(req):
         log.write('BqMessageQuery: Line'+repr(e_tb.tb_lineno)+' '+repr(e))
         if bs:
             bs.close()
-        return {'BqMessageQuery Error' : +repr(e) }
+        return {'BqMessageQuery Error' : +str(e) }
 
 def MsgAnnotations(request):
     try:
@@ -145,5 +146,5 @@ def MsgAnnotations(request):
     except Exception as e:
         e_type, e_obj, e_tb = sys.exc_info()
         log.write('MsgAnnotations: Line'+repr(e_tb.tb_lineno)+' '+repr(e))
-        return {'MsgAnnotations Error' : +repr(e) }
+        return {'MsgAnnotations Error' : +str(e) }
 
