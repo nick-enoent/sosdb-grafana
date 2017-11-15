@@ -3,6 +3,8 @@ import datetime as dt
 import os, sys, traceback
 from sosdb import Sos, bollinger
 from sosgui import settings, logging
+import views
+import time
 import numpy as np
 
 log = logging.MsgLog("Grafana SOS")
@@ -214,14 +216,18 @@ class TemplateData(SosRequest):
             self.metrics = {}
             if search_type == 'index':
                 for attr in self.schema():
-                    if attr.indexed() == True:
+                    if attr.is_indexed() == True:
                         self.metrics[attr.name()] = attr.name()
             elif search_type == 'metrics':
                 if not self.schema():
                     return {'"Error": "Error, Schema does not exist in container"'}
                 for attr in self.schema():
-                    if attr.indexed() != True:
+                    if attr.is_indexed() != True:
                         self.metrics[attr.name()] = attr.name()
+            elif search_type == 'jobs':
+                if not self.schema():
+                    return {'"Error": "Error, Schema does not exist in container"'}
+                self.metrics = getJobs(self.container())
             return self.metrics
         except Exception as e:
             exc_a, exc_b, exc_tb = sys.exc_info()
@@ -275,13 +281,37 @@ class SosTable(SosQuery):
     def __init__(self):
         SosQuery.__init__(self)
 
+    def getComponents(self, request, job_id):
+        try:
+            self.parse_query(request)
+            filt = Sos.Filter(self.schema().attr_by_name('job_time_comp'))
+            filt.add_condition(self.job_id_attr, Sos.COND_EQ, str(job_id))
+            filt.add_condition(self.tstamp, Sos.COND_GE, str(self.start))
+            filt.add_condition(self.tstamp, Sos.COND_LE, str(self.end))
+            shape = [ 'component_id' ]
+            count, nda = filt.as_ndarray(1024,
+                                              shape=shape,
+                                              order='index',
+                                              interval_ms=self.intervalMs)
+            comps = np.unique(nda)
+            del filt
+            self.release()
+            return comps
+
+        except Exception as e:
+            if self.filt:
+                del self.filt
+            exc_a, exc_b, exc_tb = sys.exc_info()
+            log.write('getData: '+repr(e)+' '+repr(exc_tb.tb_lineno))
+            log.write(traceback.format_tb(exc_tb))
+            self.release()
+            return ('err', {"target": +str(e), "datapoints" : []}, None, 0)
+
     def getData(self, request, job_id, comp_id):
         try:
             self.parse_query(request)
             self.view_cols = []
             self.met_lst = {}
-            #if not self.schema().name():
-            #    return (0, {'"target": "Error", "datapoints" : [0,"'+repr(e)+'"]'}, None, 0)
             if not self.schema():
                 return ('err', '{"target": "Schema does not exist in container", "datapoints" : [] }', None, 0)
             for attr in self.schema():
@@ -302,10 +332,8 @@ class SosTable(SosQuery):
                 obj = self.filt.begin()
             else:
                 if comp_id != 0:
-                    print("Setting the comp_id filter condition to {0}".format(comp_id))
                     self.filt.add_condition(self.comp_id_attr, Sos.COND_EQ, str(comp_id))
                 if job_id != 0:
-                    print("Setting the job_id filter condition for job_id {0}".format(job_id))
                     self.filt.add_condition(self.job_id_attr, Sos.COND_EQ, str(job_id))
                 self.filt.add_condition(self.tstamp, Sos.COND_GE, str(self.start))
                 self.filt.add_condition(self.tstamp, Sos.COND_LE, str(self.end))
@@ -326,7 +354,112 @@ class SosTable(SosQuery):
             log.write('getData: '+repr(e)+' '+repr(exc_tb.tb_lineno))
             log.write(traceback.format_tb(exc_tb))
             self.release()
-            return ('err', {"target": +str(e), "datapoints" : []}, None, 0)
+            return (0, [], [], time_col)
+            # return ('err', {"target": +str(e), "datapoints" : []}, None, 0)
+
+def getJobs(cont):
+        try:
+            print("getJobs")
+            schema = cont.schema_by_name('jobinfo')
+            print("schema {0}".format(schema))
+            start = schema.attr_by_name('job_start')
+            print("start {0}".format(start))
+            t = time.time()
+            print("time {0}".format(t))
+            filt = Sos.Filter(schema.attr_by_name('timestamp'))
+            print("filt {0}".format(filt))
+            filt.add_condition( start, Sos.COND_GE, str(t - 3600) )
+            count, nda = filt.as_ndarray(1024, shape=[ 'job_id' ], order='index')
+            jobs = np.unique(nda)
+            print("jobs {0}".format(jobs))
+            d = {}
+            for job in jobs:
+                if job == 0:
+                    continue
+                d[ str(int(job)) ] = int(job)
+            del filt
+            print d
+            return d
+        except Exception as e:
+            print("Something bad {0}".format(str(e)))
+            return []
+
+class JobInfo(SosTable):
+    def __init__(self):
+        SosTable.__init__(self)
+
+    def getData(self, request, job_id, comp_id):
+        try:
+            self.parse_query(request)
+            self.view_cols = []
+            self.met_lst = {}
+            if not self.schema():
+                return ('err', '{"target": "Schema does not exist in container", "datapoints" : [] }', None, 0)
+            for attr in self.schema():
+                self.met_lst[str(attr.name())] = str(attr.name())
+            if self.parms.metric_select:
+                self.metric_select = self.parms.metric_select
+                for attr_name in self.metric_select.split(','):
+                    if attr_name != self.index_name:
+                        a_name = self.met_lst[str(attr_name)]
+                        self.view_cols.append(a_name)
+            else:
+                for attr in self.schema():
+                    if attr.name() != self.index_name:
+                        self.view_cols.append(attr.name())
+
+            job_start = self.schema().attr_by_name('job_start')
+            obj = None
+            if self.start != 0:
+                self.filt.add_condition(job_start, Sos.COND_GE, str(self.start))
+                self.filt.add_condition(job_start, Sos.COND_LE, str(self.end))
+            obj = self.filt.begin()
+            rows = []
+            cols = []
+            for col in self.view_cols:
+                cols.append([])
+            count = len(self.view_cols)
+            job_id_idx = self.schema().attr_by_name('job_id').attr_id()
+            job_start_idx = self.schema().attr_by_name('job_start').attr_id()
+            job_end_idx = self.schema().attr_by_name('job_end').attr_id()
+            job_user_idx = self.schema().attr_by_name('job_user').attr_id()
+            job_exit_idx = self.schema().attr_by_name('job_exit_status').attr_id()
+            job_name_idx = self.schema().attr_by_name('job_name').attr_id()
+            id_col = {}
+            end_col = {}
+            name_col = {}
+            user_col = {}
+            exit_col = {}
+            while obj:
+                jid = obj[job_id_idx]
+                ts = obj[job_start_idx] * 1000
+                id_col[jid] = [ obj[job_id_idx], ts ]
+                end_col[jid] = [ obj[job_end_idx] * 1000, ts ]
+                name_col[jid] = [ obj[job_name_idx].tostring(), ts ]
+                user_col[jid] = [ obj[job_user_idx].tostring(), ts ]
+                exit_col[jid] = [ obj[job_exit_idx], ts ]
+                obj = self.filt.next()
+
+            ids = [ x[1] for x in id_col.items() ]
+            ends = [ x[1] for x in end_col.items() ]
+            names = [ x[1] for x in name_col.items() ]
+            users = [ x[1] for x in user_col.items() ]
+            exits = [ x[1] for x in exit_col.items() ]
+            if self.filt:
+                del self.filt
+            self.release()
+            return (count,
+                    [ ids, ends, users, exits ],
+                    [ 'job_id', 'job_end', 'job_user', 'job_exit' ], 0)
+
+        except Exception as e:
+            if self.filt:
+                del self.filt
+            exc_a, exc_b, exc_tb = sys.exc_info()
+            log.write('getData: '+repr(e)+' '+repr(exc_tb.tb_lineno))
+            log.write(traceback.format_tb(exc_tb))
+            self.release()
+            return (0, [], [], 0)
 
 class Derivative(SosTable):
     def __init__(self):

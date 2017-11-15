@@ -66,7 +66,7 @@ class annotation_query(object):
             self.comp_id = int(self.ann_query[3])
             self.start_time = format_time(time_range['from'].encode('utf-8'))
             self.end_time = format_time(time_range['to'].encode('utf-8'))
-            
+
         except Exception as e:
             exc_type, exc_obj, exc_tb = sys.exc_info()
             log.write('annotation parse error: '+repr(e)+' '+repr(exc_tb.tb_lineno))
@@ -181,19 +181,31 @@ def query(request):
         if qs.query_source != 'sos':
             return HttpResponse('{ "error" : "query_source not supported" }', content_type='application/json')
 
-        if qs.query_type == 'metrics':
+        print("schema {0}".format(qs.schema))
+        if qs.schema == 'jobinfo':
+            model = models_sos.JobInfo()
+            (count, res, cols, time_col) = model.getData(qs, 0, 0)
+            print(count, cols, time_col, len(res), len(cols))
+            res_list = []
+            for col in range(0, len(res)):
+                res_dict = { 'target': cols[col], 'datapoints' : res[col] }
+                res_list.append(res_dict)
+            return HttpResponse(json.dumps(res_list),
+                                content_type='application/json')
+        elif qs.query_type == 'metrics':
             model = models_sos.Metrics()
         elif qs.query_type == 'derivative':
             model = models_sos.Derivative()
         elif qs.query_type == 'bollinger':
             model = models_sos.BollingerBand()
         else:
-            return HttpResponse('{ "error" : "query_type not supported" }', content_type='application/json')
+            return HttpResponse('{ "error" : "query_type not supported" }',
+                                content_type='application/json')
 
         res_list = []
         try:
             comp_list = qs.comp_id.split(',')
-        except:
+        except Exception as e:
             comp_list = [0]
         try:
             job_list = qs.job_id.split(',')
@@ -213,7 +225,12 @@ def query(request):
                     jid = int(jid)
                 except:
                     jid = 0
+                if comp_list[0] == '0' or comp_list[0] == 0:
+                    comp_list = model.getComponents(qs, jid)
+                    print("comp_list {0}".format(comp_list))
                 for cid in comp_list:
+                    if cid == 0 and len(comp_list) > 1:
+                        continue
                     try:
                         cid = int(cid)
                     except:
@@ -229,12 +246,14 @@ def query(request):
     except Exception as e:
         exc_type, exc_obj, exc_tb = sys.exc_info()
         log.write('query error: '+repr(e)+' '+repr(exc_tb.tb_lineno))
-        return HttpResponse(json.dumps({"target": str(e), "datapoints" : []}), content_type='application_json')
+        return HttpResponse(json.dumps({"target": "badness", "datapoints" : []}), content_type='application_json')
+        # return HttpResponse(json.dumps({"target": '"' + str(e) + '"', "datapoints" : []}), content_type='application_json')
 
 def search(request):
     try:
         req = json.loads(request.body)
         resp = models_sos.TemplateData()
+        req['request'] = request
         ret = resp.GET_ATTRS(req)
         jresp = json.dumps(ret)
         return HttpResponse(jresp, content_type='application/json')
@@ -287,4 +306,4 @@ def metric_query(qs, comp_id):
         return resp
     except Exception as e:
         log.write('metric_query error: '+repr(e))
-        return HttpResponse('{ "error":'+'"'+str(e)+'"}"')
+        return HttpResponse(json.dumps({ "error" : str(e) }))
