@@ -359,19 +359,20 @@ class SosTable(SosQuery):
 
 def getJobs(cont):
         try:
-            print("getJobs")
             schema = cont.schema_by_name('jobinfo')
-            print("schema {0}".format(schema))
             start = schema.attr_by_name('job_start')
-            print("start {0}".format(start))
             t = time.time()
-            print("time {0}".format(t))
             filt = Sos.Filter(schema.attr_by_name('timestamp'))
-            print("filt {0}".format(filt))
-            filt.add_condition( start, Sos.COND_GE, str(t - 3600) )
+            obj = filt.end()
+            skip = 1024
+            while skip > 0:
+                obj = filt.prev()
+                if obj != None:
+                    skip = skip - 1
+                else:
+                    break
             count, nda = filt.as_ndarray(1024, shape=[ 'job_id' ], order='index')
             jobs = np.unique(nda)
-            print("jobs {0}".format(jobs))
             d = {}
             for job in jobs:
                 if job == 0:
