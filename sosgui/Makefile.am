@@ -1,3 +1,2 @@
-sosgui_python_DATA = grafana_settings.py
-
-sosgui_pythondir = ${prefix}/sosgui
+sosgui_PYTHON = grafana_settings.py
+sosguidir = ${prefix}/sosgui
