@@ -53,6 +53,7 @@ def SosDir():
         return rows
     except Exception as e:
         # return render.table_json('directory', [ 'name' ], [], 0)
+        log.write('SosDir Err: '+str(e))
         return SosErrorReply(e)
 
 class SosRequest(object):
@@ -220,13 +221,13 @@ class TemplateData(SosRequest):
                         self.metrics[attr.name()] = attr.name()
             elif search_type == 'metrics':
                 if not self.schema():
-                    return {'"Error": "Error, Schema does not exist in container"'}
+                    return {'"Error, Schema does not exist in container"'}
                 for attr in self.schema():
                     if attr.is_indexed() != True:
                         self.metrics[attr.name()] = attr.name()
             elif search_type == 'jobs':
                 if not self.schema():
-                    return {'"Error": "Error, Schema does not exist in container"'}
+                    return {'"Error, Schema does not exist in container"'}
                 self.metrics = getJobs(self.container())
             return self.metrics
         except Exception as e:
@@ -289,10 +290,10 @@ class SosTable(SosQuery):
             filt.add_condition(self.tstamp, Sos.COND_GE, str(self.start))
             filt.add_condition(self.tstamp, Sos.COND_LE, str(self.end))
             shape = [ 'component_id' ]
-            count, nda = filt.as_ndarray(1024,
-                                              shape=shape,
-                                              order='index',
-                                              interval_ms=self.intervalMs)
+            count, nda = filt.as_timeseries(1024,
+                                            shape=shape,
+                                            order='index',
+                                            interval_ms=self.intervalMs)
             comps = np.unique(nda)
             del filt
             self.release()
@@ -339,10 +340,10 @@ class SosTable(SosQuery):
                 self.filt.add_condition(self.tstamp, Sos.COND_LE, str(self.end))
             shape = [ self.tstamp.name() ] + self.view_cols
             time_col = 0
-            count, nda = self.filt.as_ndarray(self.maxDataPoints,
-                                              shape=shape,
-                                              order='index',
-                                              interval_ms=self.intervalMs)
+            count, nda = self.filt.as_timeseries(self.maxDataPoints,
+                                                 shape=shape,
+                                                 order='index',
+                                                 interval_ms=self.intervalMs)
             if self.filt:
                 del self.filt
             self.release()
@@ -371,7 +372,7 @@ def getJobs(cont):
                     skip = skip - 1
                 else:
                     break
-            count, nda = filt.as_ndarray(1024, shape=[ 'job_id' ], order='index')
+            count, nda = filt.as_timeseries(1024, shape=[ 'job_id' ], order='index')
             jobs = np.unique(nda)
             d = {}
             for job in jobs:
@@ -382,7 +383,7 @@ def getJobs(cont):
             print d
             return d
         except Exception as e:
-            print("Something bad {0}".format(str(e)))
+            print("Jobs Error: {0}".format(str(e)))
             return []
 
 class JobInfo(SosTable):
