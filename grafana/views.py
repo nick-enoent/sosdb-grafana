@@ -1,7 +1,9 @@
 from django.contrib.auth import authenticate, login
 from django.shortcuts import render
-from django.http import HttpResponse, Http404, HttpResponseRedirect
+from django.http import HttpResponse, Http404, HttpResponseRedirect, QueryDict
 from sosgui import logging, settings
+from sosdb import Sos
+import traceback as tb
 import datetime as dt
 import time
 import sys
@@ -10,300 +12,348 @@ import models_baler
 import json
 
 log = logging.MsgLog("Grafana Views ")
+containers = {}
 
+def get_container(cont_name):
+    # log.write("Container get {0}".format(cont_name))
+    if cont_name in containers:
+        return containers[cont_name]
+    path = settings.SOS_ROOT + '/' + cont_name
+    log.write("Opening container {0}".format(path))
+    cont = Sos.Container(path)
+    containers[cont_name] = cont
+    return cont
+
+def parse_referer_date(s):
+    if s == "now":
+        return time.time()
+    elif 'now' in s:
+        w = s.split('-')
+        now = time.time()
+        n = float(w[1][:-1])
+        u = w[1][-1]
+        if u == 's':
+            return now - n
+        if u == 'm':
+            return now - (n * 60)
+        if u == 'h':
+            return now - (n * 3600)
+        if u == 'd':
+            return now - (n * 86400)
+        raise ValueError("No comprendez {0}".format(s))
+    else:
+        return float(s) / 1.0e3
+
+def parse_glob(s):
+    """parse '{this,that}' into an array of words ['this','that']"""
+    names = s.replace('{','').replace('}','')
+    ary = names.split(',')
+    for i in range(0, len(ary)):
+        ary[i] = str(ary[i])
+    return ary
+
+def parse_date_iso8601(s):
+    return dt.datetime.strptime(s, '%Y-%m-%dT%H:%M:%S.%fZ')
+
+class QueryParameters(object):
+    """Utility class for handling request body parameters"""
+    def __init__(self, query_parms):
+        terms = query_parms.split('&')
+        self.params = {}
+        for term in terms:
+            if '=' in term:
+                av = term.split('=')
+                self.params[av[0]] = av[1]
+            else:
+                self.params[term] = True
+
+    def __getitem__(self, idx):
+        if idx in self.params:
+            return self.params[idx]
+        return None
+
+    @property
+    def count(self):
+        return len(self.params)
+
+    def contains(self, key):
+        return key in self.params
+
+########################################################################
+# URL Handlers
+########################################################################
+
+# ^$
 def ok(request):
     return HttpResponse(status=200)
 
-'''
-class query_baler(object):
-    def __init__(self):
-        self.store = None
-        self.container = None
-        self.schema = None
-        self.metric = None
-        self.index = 'timestamp'
-        self.query_type = None
-        self.start_time = 0
-        self.end_time = 0
-        self.ptn_id = 0
-        self.bin_width = 86400
-
-    def parse(self, request):
-        targets = request['targets']
-        time_range = request['range']
-        self.query_type = targets[1]['target'].encode('utf-8')
-        self.store = targets[2]['target'].encode('utf-8')
-        self.ptn_id = int(targets[3]['target'].encode('utf-8'))
-        self.bin_width = int(targets[4]['target'].encode('utf-8'))
-        # parse start/end times
-        self.start_time = self.format_time(time_range['from'].encode('utf-8'))
-        self.end_time = self.format_time(time_range['to'].encode('utf-8'))
-
-    def format_time(self, t):
-        split = t.split('T')
-        t = split[0]+' '+split[1]
-        t = t[:-5]
-        return int(time.mktime(datetime.datetime.strptime(t, "%Y-%m-%d %H:%M:%S").timetuple()))
-'''
-
-class annotation_query(object):
-    def __init__(self):
-        self.store = None
-        self.job_id = 0
-        self.comp_id = 0
-        self.start_time = 0
-        self.end_time = 0
-        self.ptn_id = 0
-
-    def parse(self, request):
-        try:
-            time_range = request['range']
-            self.annotation = request['annotation']
-            self.ann_query = self.annotation['query'].split('&')
-            self.store = self.ann_query[0]
-            self.ptn_id = self.ann_query[1].split(",")
-            self.job_id = int(self.ann_query[2])
-            self.comp_id = int(self.ann_query[3])
-            self.start_time = format_time(time_range['from'].encode('utf-8'))
-            self.end_time = format_time(time_range['to'].encode('utf-8'))
-
-        except Exception as e:
-            exc_type, exc_obj, exc_tb = sys.exc_info()
-            log.write('annotation parse error: '+repr(e)+' '+repr(exc_tb.tb_lineno))
-            return HttpResponse({'annotation parse err: '+str(e)}, content_type='application/json')
-
-
-class query_sos(object):
-    def __init__(self):
-        self.store = None
-        self.container = None
-        self.schema = None
-        self.metric_select = None
-        self.index = 'timestamp'
-        self.query_source = 'sos'
-        self.query_type = 'metrics'
-        self.start_time = 0
-        self.end_time = 0
-        self.comp_id = 0
-        self.job_id = 0
-
-    def parse(self, request):
-        #if 'basicAuthUser' in request:
-        #    username = request.POST['basicAuthUser']
-        #    password = request.POST['basicAuthPassword']
-        #    try:
-        #        user = authenticate(request, username=username, password=password)
-        #        if user is not None:
-        #            login(request,user)
-        #            return 1
-        #        else:
-        #            return 0
-        #    except Exception as e:
-        #        log.write('authenticate err: '+repr(e))
-        #else:
-        #    return 0
-        if 'maxDataPoints' in request:
-            self.maxDataPoints = request['maxDataPoints']
-        else:
-            self.maxDataPoints = 1024
-        if 'intervalMs' in request:
-            self.intervalMs = request['intervalMs']
-        else:
-            self.intervalMs = 1000
-        try:
-            targets = request['targets']
-            self.targets = targets
-            time_range = request['range']
-            self.query_type = targets[0]['query_type'].encode('utf-8')
-            self.container = targets[0]['container'].encode('utf-8')
-            self.schema = targets[0]['schema'].encode('utf-8')
-            self.index = targets[0]['index'].encode('utf-8')
-            self.ms = targets[0]['target'].encode('utf-8')
-            self.comp_id = targets[0]['comp_id'].encode('utf-8')
-            self.comp_id = self.comp_id.strip('{').strip('}')
-            self.job_id = targets[0]['job_id'].encode('utf-8')
-            self.job_id = self.job_id.strip('{').strip('}')
-            self.metric_select = self.ms.strip('{').strip('}')
-            # parse start/end times
-            self.start_time = format_time(time_range['from'].encode('utf-8'))
-            self.end_time = format_time(time_range['to'].encode('utf-8'))
-        except Exception as e:
-            exc_type, exc_obj, exc_tb = sys.exc_info()
-            log.write('parse error: '+repr(e)+' '+repr(exc_tb.tb_lineno))
-            return HttpResponse({'parse err: '+str(e)}, content_type='application/json')
-
-def format_time(t):
-    split = t.split('T')
-    t = split[0]+' '+split[1]
-    t = t[:-5]
-    return int(time.mktime(dt.datetime.strptime(t, "%Y-%m-%d %H:%M:%S").timetuple()))
-
-def renderToResult(res_list, job_id, comp_id, count, res, cols, time_col):
-    for col in range(0, len(cols)):
-        if col == time_col:
-            continue
-        if count > 0:
-            result = res[:,[col,time_col]].tolist()
-        else:
-            result = []
-        if job_id == 0:
-            res_dict = { 'target': 'Comp ID ' + str(comp_id) + ' ' + cols[col],
-                         'datapoints' : result }
-        else:
-            if comp_id == 0:
-                res_dict = { 'target': 'Job ID ' + str(job_id) + ' ' + cols[col],
-                             'datapoints' : result }
-            else:
-                res_dict = { 'target': 'Job ID ' + str(job_id) +
-                             ' Comp ID ' + str(comp_id) + ' ' + cols[col],
-                             'datapoints' : result }
-        res_list.append(res_dict)
-
+# ^query
 def query(request):
     try:
-        req = json.loads(request.body)
-        #query_source = req['targets'][0]['target'].encode('utf-8')
-        #if query_source == 'baler':
-        #    qb = query_baler()
-        #    qb.parse(req)
-        #    if qb.query_type == 'ptn_hist':
-        #        jresp = ptn_hist(qb)
-        #        return HttpResponse(jresp, content_type='application/json')
-        #    elif qb.query_type == 'patterns':
-        #        jresp = patterns(query)
-        #        return HttpResponse(jresp, content_type='application/json')
-        #    else:
-        #        return HttpResponse('{ error : query_type not supported }', content_type='application/json')
-        qs = query_sos()
-        qs.parse(req)
-        #if not qs.parse(req):
-        #    return HttpResponse({'Authentication Error: Incorrect user or password'}, content_type='application/json')
-        if qs.query_source != 'sos':
-            return HttpResponse('{ "error" : "query_source not supported" }', content_type='application/json')
+        log.write("Enter query")
+        body = request.body
+        req = json.loads(body)
+        # log.write(req)
 
-        print("schema {0}".format(qs.schema))
-        if qs.schema == 'jobinfo':
-            model = models_sos.JobInfo()
-            (count, res, cols, time_col) = model.getData(qs, 0, 0)
-            print(count, cols, time_col, len(res), len(cols))
-            res_list = []
-            for col in range(0, len(res)):
-                res_dict = { 'target': cols[col], 'datapoints' : res[col] }
-                res_list.append(res_dict)
-            return HttpResponse(json.dumps(res_list),
-                                content_type='application/json')
-        elif qs.query_type == 'metrics':
-            model = models_sos.Metrics()
-        elif qs.query_type == 'derivative':
-            model = models_sos.Derivative()
-        elif qs.query_type == 'bollinger':
-            model = models_sos.BollingerBand()
+        date_range = req['range']
+        start = parse_date_iso8601(date_range['from'])
+        end = parse_date_iso8601(date_range['to'])
+        intervalMs = req['intervalMs']
+        maxDataPoints = req['maxDataPoints']
+
+        startS = float(start.strftime('%s'))
+        endS = float(end.strftime('%s'))
+
+        startMs = startS * 1.0e3
+        endMs = endS * 1.0e3
+
+        # if end < start (e.g. 0) end is now, but clamp
+        # to display window
+        if endMs < startMs:
+            endMs = startMs + (intervalMs * maxDataPoints)
+
+        target = req['targets'][0]
+        cont_name = str(target['container'])
+        cont = get_container(cont_name)
+        if cont is None:
+            return HttpResponse("The container {0} could not be opened.".\
+                                format(cont_name),
+                                content_type="text/html")
+        schemaName = str(target['schema'])
+        metricNames = parse_glob(target['target'])
+        if 'scopedVars' in req:
+            scopedVars = req['scopedVars']
+            # log.write("scopedVars {0}".format(scopedVars))
+            if 'metric' in scopedVars:
+                metric = scopedVars['metric']
+                # log.write("metric {0}".format(metric))
+                metricNames = [ str(metric['text' ]) ]
+        if 'job_id' in target:
+            jobId = int(target['job_id'])
         else:
-            return HttpResponse('{ "error" : "query_type not supported" }',
-                                content_type='application/json')
-
+            jobId = 0
+        if 'comp_id' in target:
+            compId = target['comp_id']
+            if type(compId) == str and ('{' in compId or ',' in compId):
+                compId = parse_glob(compId)
+            else:
+                compId = int(compId)
+        else:
+            compId = None
+        model = models_sos.Query(cont)
         res_list = []
-        try:
-            comp_list = qs.comp_id.split(',')
-        except Exception as e:
-            comp_list = [0]
-        try:
-            job_list = qs.job_id.split(',')
-        except:
-            job_list = [0]
-        if job_list[0] == 0:
-            for cid in comp_list:
-                try:
-                    cid = int(cid)
-                except:
-                    cid = 0
-                (count, res, cols, time_col) = model.getData(qs, 0, cid)
-                renderToResult(res_list, 0, cid, count, res, cols, time_col)
+        if 'format' in target:
+            fmt = target['format']
         else:
-            for jid in job_list:
-                try:
-                    jid = int(jid)
-                except:
-                    jid = 0
-                if comp_list[0] == '0' or comp_list[0] == 0:
-                    comp_list = model.getComponents(qs, jid)
-                    print("comp_list {0}".format(comp_list))
-                for cid in comp_list:
-                    if cid == 0 and len(comp_list) > 1:
-                        continue
-                    try:
-                        cid = int(cid)
-                    except:
-                        cid = 0
-                    (count, res, cols, time_col) = model.getData(qs, jid, cid)
-                    if count == 'err':
-                        log.write('res '+repr(res))
-                        res = str(res)
-                        return HttpResponse(json.dumps(res), content_type='application/json')
-                    renderToResult(res_list, jid, cid, count, res, cols, time_col)
+            log.write("Missing format in target")
+            fmt = "time_series"
+        if fmt == 'job_table':
+            result = model.getJobTable(0, start, end)
+            columns = []
+            for ser in result.series:
+                columns.append({ "text" : ser })
+            rows = result.tolist()
+            res_list = [ { "columns" : columns, "rows" : rows, "type": "table" } ]
+            s = json.dumps(res_list)
+        elif fmt == 'table':
+            result = model.getTable(schemaName,
+                                    metricNames,
+                                    start, end)
+            columns = []
+            for ser in result.series:
+                columns.append({ "text" : ser })
+            rows = result.tolist()
+            res_list = [ { "columns" : columns, "rows" : rows, "type": "table" } ]
+            s = json.dumps(res_list)
+
+        elif fmt == 'time_series':
+            if jobId != 0:
+                result = model.getJobTimeseries(schemaName,
+                                                jobId,
+                                                metricNames,
+                                                'timestamp',
+                                                start, end,
+                                                maxDataPoints)
+                if result:
+                    for res in result:
+                        res_list.append({ 'target' : str(jobId) +
+                                          '[' + str(res['comp_id']) + ']:'
+                                          + metricNames[0],
+                                          'datapoints' : res['datapoints']})
+                else:
+                    res_list = [{ 'target' : str(jobId) + '[???]:' + metricNames[0],
+                                          'datapoints' : [] }]
+
+            else:
+                result = model.getCompTimeseries(schemaName,
+                                                 compId,
+                                                 metricNames,
+                                                 'timestamp',
+                                                 start, end,
+                                                 intervalMs,
+                                                 maxDataPoints)
+                if result:
+                    for res in result:
+                        res_list.append({ 'target' : '[' + str(res['comp_id']) + ']'
+                                          + str(res['metric']),
+                                          'datapoints' : res['datapoints']})
+                else:
+                    res_list = [{ 'target' : '[???]:' + str(metricNames),
+                                          'datapoints' : [] }]
+
+        else:
+            res_list = [ { "target" : "error",
+                           "datapoints" : "unrecognized format {0}".format(fmt) } ]
+
         return HttpResponse(json.dumps(res_list), content_type='application/json')
-
     except Exception as e:
-        exc_type, exc_obj, exc_tb = sys.exc_info()
-        log.write('query error: '+repr(e)+' '+repr(exc_tb.tb_lineno))
-        return HttpResponse(json.dumps({"target": "badness", "datapoints" : []}), content_type='application_json')
-        # return HttpResponse(json.dumps({"target": '"' + str(e) + '"', "datapoints" : []}), content_type='application_json')
+        log.write(tb.format_exc())
+        log.write(e.message)
+        return HttpResponse(json.dumps([]), content_type='application/json')
 
+
+# ^search
 def search(request):
     try:
-        req = json.loads(request.body)
-        resp = models_sos.TemplateData()
-        req['request'] = request
-        ret = resp.GET_ATTRS(req)
-        jresp = json.dumps(ret)
-        return HttpResponse(jresp, content_type='application/json')
-    except Exception as e:
-        log.write('search error: '+repr(e))
-        return HttpResponse('{"error" : '+'"' + str(e) + '"}', content_type='application/json')
+        log.write("Enter search")
 
+        body = request.body
+        req = json.loads(body)
+        # log.write(req)
+
+        referer = request.META['HTTP_REFERER']
+        # log.write(referer)
+
+        # The first parameter in the target is the desired data:
+        # - SCHEMA   Schema in the container:
+        #    Syntax: query=schema&container=<cont_name>
+        # - METRICS   Attrs in the schema
+        #    Syntax: query=metrics&container=<cont_name>&schema=<schema_name>
+        # - JOBS     Jobs with data in time range
+        #    Syntax: query=jobs<schema>&container=<cont_name>&schema=<schema_name>
+        # - COMPONENTS    Components with data
+        #    Syntax: query=components&container=<cont_name>&schema=<schema_Name>
+        parms = QueryParameters(req['target'])
+
+        cont_name = parms['container']
+        if cont_name is None:
+            raise ValueError("Error: The 'container' key is missing from the search")
+
+        cont = get_container(cont_name)
+        if cont is None:
+            raise ValueError("Error: The container {0} could not be opened.".format(cont_name))
+
+        model = models_sos.Search(cont)
+        resp = {}
+
+        schema = parms['schema']
+        query = parms['query']
+        if query.lower() != "schema" and schema is None:
+            if schema is None:
+                raise ValueError("Error: The 'schema' parameter is missing from the search.")
+
+        if query.lower() == "schema":
+            resp = model.getSchema(cont)
+        elif query.lower() == "index":
+            resp = model.getIndices(cont, schema)
+        elif query.lower() == "metric":
+            resp = model.getMetrics(cont, schema)
+        elif query.lower() == "components":
+            query_dict = QueryDict(referer)
+            if 'from' in query_dict:
+                start = parse_referer_date(query_dict['from'])
+            else:
+                start = 0
+            if 'to' in query_dict:
+                end = parse_referer_date(query_dict['to'])
+            else:
+                end = 0
+            resp = model.getComponents(cont, schema, start, end)
+        elif query.lower() == "jobs":
+            query_dict = QueryDict(referer)
+            if 'from' in query_dict:
+                start = parse_referer_date(query_dict['from'])
+            else:
+                start = 0
+            if 'to' in query_dict:
+                end = parse_referer_date(query_dict['to'])
+            else:
+                end = 0
+            resp = model.getJobs(cont, schema, start, end)
+
+        return HttpResponse(json.dumps(resp), content_type = 'application/json')
+
+    except Exception as e:
+        log.write("search: {0}".format(e.message))
+        return HttpResponse(json.dumps(e.message.split(' ')),
+                            content_type='application/json')
+
+# ^annotations
 def annotations(request):
     try:
-       req = json.loads(request.body)
-       aq = annotation_query()
-       aq.parse(req)
-       ret = models_baler.MsgAnnotations(aq)
-       jresp = json.dumps(ret)
-       return HttpResponse(jresp, content_type='application/json')
-    except Exception as e:
-        a, b, exc_tb = sys.exc_info()
-        log.write('annotation err '+repr(e)+' '+repr(exc_tb.tb_lineno))
-        return HttpResponse({'err: '+str(e)}, content_type='application/json')
-'''
-def ptn_hist(qb):
-    try:
-        resp = models_baler.Bq_Ptn_Hist(qb)
-        jresp = json.dumps(resp)
-        return jresp
-    except Exception as e:
-        log.write('ptn_hist: '+repr(e))
-        return HttpResponse({'ptn_hist error' : repr(e)})
+        log.write("Enter annotations")
+        annotes = []
+        body = request.body
+        req = json.loads(body)
 
-def patterns(query):
-    resp = models_baler.BqPatternQuery(query)
-    jresp = dumps(resp)
-    return jresp
+        date_range = req['range']
+        start = parse_date_iso8601(date_range['from'])
+        end = parse_date_iso8601(date_range['to'])
 
-def messages(request):
-    try:
-        query_str = request.GET
-        resp = models_baler.BqMessageQuery(query)
-        jresp = json.dumps(resp)
-        return HttpResponse(jresp, content_type='text/json')
-    except Exception as e:
-        log.write('Grafana messages error: '+repr(e))
-        return HttpResponse({"Messsage Error": repr(e)})
-'''
+        annotation = req['annotation']
+        query = annotation['query']
+        parameters = QueryParameters(query)
 
-def metric_query(qs, comp_id):
-    try:
-        sq = models_sos.SosTable()
-        resp = sq.GET(qs, comp_id)
-        return resp
+        note_type = parameters['type']
+        if note_type is None:
+            raise ValueError("Missing type")
+
+        cont_name = parameters['container']
+        if cont_name is None:
+            raise ValueError("Missing container name")
+
+        cont = get_container(cont_name)
+        if cont is None:
+            raise ValueError("Container '{0}' could not be opened.".format(cont_name))
+
+        model = models_sos.Annotations(cont=cont)
+        if note_type.upper() == 'JOB_MARKERS':
+            jobId = parameters['job_id']
+            compId = parameters['comp_id']
+            jobs = model.getJobMarkers(start, end, jobId=jobId, compId=compId)
+        else:
+            raise ValueError("Unrecognized annotation type '{0}'.".format(note_type))
+
+        if jobs is None:
+            raise ValueError("No data returned for jobId {0} compId {1} start {2} end {3}".\
+                             format(jobId, compId, start, end))
+
+        for row in range(0, jobs.get_series_size()):
+            entry = {}
+            job_id = str(jobs['job_id', row])
+
+            # Job start annotation
+            entry['annotation'] = annotation
+            entry["text"] = 'Job ' + job_id + ' started'
+            # obj["tags"] =  "comp_id "+repr(int(m['comp_id']))
+            job_start = int(jobs['job_start', row])
+            entry["time"] = job_start
+            entry["title"] = "Job Id " + job_id
+            annotes.append(entry)
+
+            # Job end annotation
+            job_end = int(jobs['job_end', row])
+            if job_end > job_start:
+                entry = {}
+                entry['annotation'] = annotation
+                entry["text"] = 'Job ' + job_id + ' finished'
+                entry["time"] = job_end
+                entry["title"] = "Job Id " + job_id
+            annotes.append(entry)
+        # log.write("annotes {0}".format(json.dumps(annotes)))
+        return HttpResponse(json.dumps(annotes), content_type='application/json')
+
     except Exception as e:
-        log.write('metric_query error: '+repr(e))
-        return HttpResponse(json.dumps({ "error" : str(e) }))
+        log.write(tb.format_exc())
+        log.write(e.message)
+        return HttpResponse(json.dumps(annotes), content_type='application/json')
