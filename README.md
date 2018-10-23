@@ -33,4 +33,4 @@ Annotations
 ============
 
 Query format is as such:
-	store&ptn_id&job_id&comp_id
+	container=<cont_name>&job_id=<job_id>&comp_id=<comp_id>
