@@ -20,9 +20,5 @@ AC_CONFIG_FILES([
         sosgui/Makefile
         grafana/Makefile
         sosds/Makefile
-        sosds/dist/Makefile
-        sosds/dist/css/Makefile
-        sosds/dist/img/Makefile
-        sosds/dist/partials/Makefile
         ])
 AC_OUTPUT

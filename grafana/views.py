@@ -312,7 +312,8 @@ def annotations(request):
         if cont_name is None:
             raise ValueError("Missing container name")
 
-        cont = get_container(cont_name)
+        #cont = get_container(cont_name)
+        cont = GetBstore(cont_name)
         if cont is None:
             raise ValueError("Container '{0}' could not be opened.".format(cont_name))
 
