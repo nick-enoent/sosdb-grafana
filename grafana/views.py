@@ -85,6 +85,7 @@ class QueryParameters(object):
 
 # ^$
 def ok(request):
+    log.write('ok')
     return HttpResponse(status=200)
 
 # ^query
@@ -191,7 +192,7 @@ def query(request):
                                                  'timestamp',
                                                  start, end,
                                                  intervalMs,
-                                                 maxDataPoints)
+                                                 1024)
                 if result:
                     for res in result:
                         res_list.append({ 'target' : '[' + str(res['comp_id']) + ']'
@@ -204,8 +205,8 @@ def query(request):
         else:
             res_list = [ { "target" : "error",
                            "datapoints" : "unrecognized format {0}".format(fmt) } ]
-
-        return HttpResponse(json.dumps(res_list), content_type='application/json')
+        res_list = json.dumps(res_list)
+        return HttpResponse(res_list, content_type='application/json')
     except Exception as e:
         log.write(tb.format_exc())
         log.write(e.message)
@@ -312,46 +313,57 @@ def annotations(request):
         if cont_name is None:
             raise ValueError("Missing container name")
 
-        #cont = get_container(cont_name)
-        cont = GetBstore(cont_name)
+        cont = models_baler.GetBstore(cont_name)
         if cont is None:
             raise ValueError("Container '{0}' could not be opened.".format(cont_name))
 
-        model = models_sos.Annotations(cont=cont)
-        if note_type.upper() == 'JOB_MARKERS':
-            jobId = parameters['job_id']
-            compId = parameters['comp_id']
+        jobId = parameters['job_id']
+        compId = parameters['comp_id']
+        if not parameters['ptn_id']:
+            ptnId = [0]
+        else:
+            ptnId = parameters['ptn_id'].split(',')
+            x = 0
+            for i in ptnId:
+                ptnId[x] = int(ptnId[x])
+                x += 1
+        if note_type == 'JOB_MARKERS':
+            model = models_sos.Annotations(cont=cont)
             jobs = model.getJobMarkers(start, end, jobId=jobId, compId=compId)
+            if jobs is None:
+                raise ValueError("No data returned for jobId {0} compId {1} start {2} end {3}".\
+                                 format(jobId, compId, start, end))
+
+            for row in range(0, jobs.get_series_size()):
+                entry = {}
+                job_id = str(jobs['job_id', row])
+
+                # Job start annotation
+                entry['annotation'] = annotation
+                entry["text"] = 'Job ' + job_id + ' started'
+                # obj["tags"] =  "comp_id "+repr(int(m['comp_id']))
+                job_start = int(jobs['job_start', row])
+                entry["time"] = job_start
+                entry["title"] = "Job Id " + job_id
+                annotes.append(entry)
+
+                # Job end annotation
+                job_end = int(jobs['job_end', row])
+                if job_end > job_start:
+                    entry = {}
+                    entry['annotation'] = annotation
+                    entry["text"] = 'Job ' + job_id + ' finished'
+                    entry["time"] = job_end
+                    entry["title"] = "Job Id " + job_id
+                annotes.append(entry)
+            # log.write("annotes {0}".format(json.dumps(annotes)))
+        elif note_type == 'LOGS':
+            start = int(start.strftime('%s'))
+            end = int(end.strftime('%s'))
+            annotes = models_baler.MsgAnnotations(cont, start, end, int(compId), ptnId, annotation)
         else:
             raise ValueError("Unrecognized annotation type '{0}'.".format(note_type))
 
-        if jobs is None:
-            raise ValueError("No data returned for jobId {0} compId {1} start {2} end {3}".\
-                             format(jobId, compId, start, end))
-
-        for row in range(0, jobs.get_series_size()):
-            entry = {}
-            job_id = str(jobs['job_id', row])
-
-            # Job start annotation
-            entry['annotation'] = annotation
-            entry["text"] = 'Job ' + job_id + ' started'
-            # obj["tags"] =  "comp_id "+repr(int(m['comp_id']))
-            job_start = int(jobs['job_start', row])
-            entry["time"] = job_start
-            entry["title"] = "Job Id " + job_id
-            annotes.append(entry)
-
-            # Job end annotation
-            job_end = int(jobs['job_end', row])
-            if job_end > job_start:
-                entry = {}
-                entry['annotation'] = annotation
-                entry["text"] = 'Job ' + job_id + ' finished'
-                entry["time"] = job_end
-                entry["title"] = "Job Id " + job_id
-            annotes.append(entry)
-        # log.write("annotes {0}".format(json.dumps(annotes)))
         return HttpResponse(json.dumps(annotes), content_type='application/json')
 
     except Exception as e:

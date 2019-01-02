@@ -5,8 +5,7 @@ from sosdb import Sos, bollinger
 from sosgui import settings, logging
 from numsos.DataSource import SosDataSource
 from numsos.Transform import Transform
-from numsos.DataSet import DataSet
-from numsos.Inputer import Downsample
+from sosdb.DataSet import DataSet
 import views
 import time
 import numpy as np
@@ -195,10 +194,13 @@ class Query(object):
                        order_by = 'timestamp'
                    )
             comps = src.get_results(limit=3600)
-            compIds = np.unique(comps['component_id'])
+            if not comps:
+                compIds = np.zeros(1)
+            else:
+                compIds = np.unique(comps['component_id'])
         for comp_id in compIds:
             for metric in metricNames:
-                src.select([ metric, 'component_id', 'timestamp' ],
+                src.select([ metric, 'timestamp' ],
                            from_ = [ schemaName ],
                            where = [
                                [ 'component_id', Sos.COND_EQ, comp_id ],
@@ -207,19 +209,15 @@ class Query(object):
                            ],
                            order_by = 'comp_time'
                        )
-                if intervalMs > 1000:
-                    inp = Downsample(src, maxDataPoints+1024, intervalMs * 1000)
-                else:
-                    inp = None
-                res = src.get_results(inputer=inp, limit=maxDataPoints+1024)
+                #if intervalMs > 1000:
+                #    inp = Downsample(src, maxDataPoints+1024, intervalMs * 1000)
+                #else:
+                inp = None
+                res = src.get_results(inputer=inp, limit=maxDataPoints)
                 if res is None:
                     return None
-                compSet = DataSet()
-                ssize = res.get_series_size()
-                compSet.append_array(ssize, [ metric ], res[metric])
-                compSet.append_array(ssize, [ 'timestamp' ], res['timestamp'])
                 result.append({ "comp_id" : comp_id, "metric" : metric, "datapoints" :
-                                compSet.tolist() })
+                                res.tolist() })
         return result
 
     def getJobTable(self, jobId, start, end):
@@ -333,5 +331,3 @@ class Annotations(object):
         result['job_start'] *= 1000
         result['job_end'] *= 1000
         return result
-
-

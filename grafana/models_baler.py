@@ -88,20 +88,19 @@ def tkn_from_str(bs, tkn_str):
     else:
         raise NameError("No token with name {0}".format(req.tkn_str))
 
-def BqMessageQuery(req):
+def BqMessageQuery(bs, start, end, compId, ptnId=0):
     ''' Queries for messages with Bq api
         Takes start/end time arguments'''
-    bs = GetBstore(req.store)
     if not bs:
         return { "messages" : [], "iTotalRecords" : 0, "iTotalDisplayRecords" : 0 }
     try:
         messages = {}
         msg_list = []
-        for ptnid in req.ptn_id:
+        for ptnid in ptnId:
             mi = Bq.Bmsg_iter(bs)
-            mi.set_filter(comp_id=req.comp_id, ptn_id=int(ptnid), tv_begin=(req.start_time,0),tv_end=(req.end_time,0))
+            mi.set_filter(comp_id=compId, ptn_id=ptnid, tv_begin=(start,0),tv_end=(end,0))
             for m in mi:
-                if req.end_time > 0 and m.tv_sec() > req.end_time:
+                if end > 0 and m.tv_sec() > end:
                     break
                 msg_obj = {}
                 tkn_list = []
@@ -125,26 +124,26 @@ def BqMessageQuery(req):
         log.write('BqMessageQuery: Line'+repr(e_tb.tb_lineno)+' '+repr(e))
         if bs:
             bs.close()
-        return {'BqMessageQuery Error' : +str(e) }
+        return {'BqMessageQuery Error' : str(e) }
 
-def MsgAnnotations(request):
+def MsgAnnotations(cont, start, end, compId, ptnId, ann):
     try:
-        messages = BqMessageQuery(request)
+        messages = BqMessageQuery(cont, start, end, compId, ptnId)
         annotations = []
         for m in messages['messages']:
             obj = {}
             tkn_str = ''
             for t in m['tkn_list']:
                 tkn_str += str(t['tkn_text'])
-            obj['annotation'] = request.annotation
+            obj['annotation'] = ann
             obj["text"] = tkn_str
-            obj["tags"] =  "comp_id "+repr(int(m['comp_id']))
+            obj["tags"] =  ["comp_id "+repr(int(m['comp_id']))]
             obj["time"] = m["timestamp"] * 1000
             obj["title"] = "Pattern ID "+repr(int(m['ptn_id']))
             annotations.append(obj)
         return annotations
     except Exception as e:
         e_type, e_obj, e_tb = sys.exc_info()
-        log.write('MsgAnnotations: Line'+repr(e_tb.tb_lineno)+' '+repr(e))
-        return {'MsgAnnotations Error' : +str(e) }
+        log.write('MsgAnnotations: Line '+str(e_tb.tb_lineno)+' '+str(e))
+        return {'MsgAnnotations Error' : str(e) }
 
