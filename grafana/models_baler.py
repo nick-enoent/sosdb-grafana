@@ -145,5 +145,5 @@ def MsgAnnotations(cont, start, end, compId, ptnId, ann):
     except Exception as e:
         e_type, e_obj, e_tb = sys.exc_info()
         log.write('MsgAnnotations: Line '+str(e_tb.tb_lineno)+' '+str(e))
-        return {'MsgAnnotations Error' : str(e) }
+        return { 'MsgAnnotations Error' : str(e) }
 

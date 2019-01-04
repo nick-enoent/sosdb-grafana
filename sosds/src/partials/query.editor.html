@@ -1,17 +1,19 @@
 <query-editor-row query-ctrl="ctrl" class="sos-datasource-query-row" has-text-edit-mode="true">
   <div class="gf-form-inline">
 
-    <div class="gf-form max-width-25">
+    <div class="gf-form max-width-20">
       <label class="gf-form-label query-keyword width-8">
         Format
       </label>
-      <input type="text" class="gf-form-input" spellcheck='false' ng-model='ctrl.target.format'
-                                               placeholder='format'
-                                               data-min-length=0 data-items=100
-                                               ng-blur="ctrl.onChangeInternal()">
-      </input>
+        <div class="gf-form-select-wrapper">
+          <select ng-model="ctrl.target.format" class="gf-form-input" placeholder="format"
+	          ng-options="qt as qt for qt in ['time_series', 'table', 'job_table']"
+                  data-min-length=0 data-items=100
+                  ng-blur="ctrl.onChangeInternal()">
+          </select>
+        </div>
     </div>
-    <div class="gf-form max-width-25">
+    <div class="gf-form max-width-20">
       <label class="gf-form-label query-keyword width-8">
         Container
       </label>
@@ -21,7 +23,7 @@
                                                ng-blur="ctrl.onChangeInternal()">
       </input>
     </div>
-    <div class="gf-form max-width-25">
+    <div class="gf-form max-width-20">
       <label class="gf-form-label query-keyword width-8">
         Schema
       </label>
@@ -31,7 +33,7 @@
                                                ng-blur="ctrl.onChangeInternal()">
       </input>
     </div>
-    <div class="gf-form max-width-25">
+    <div class="gf-form max-width-20">
       <label class="gf-form-label query-keyword width-8">
         Job ID
       </label>
@@ -41,7 +43,7 @@
                                                ng-blure="ctrl.onChangeInternal()">
       </input>
     </div>
-    <div class="gf-form max-width-25">
+    <div class="gf-form max-width-20">
       <label class="gf-form-label query-keyword width-8">
         Comp ID
       </label>
@@ -53,9 +55,7 @@
     </div>
   </div>
   <div class="gf-form-inline">
-    <div ng-dropdown-multiselect="" options="[{id:1, label='foo'},{id:2, label:'bar'}]" selected-model="metrc_select">
-    </div>
-    <div class="gf-form max-width-25">
+    <div class="gf-form max-width-20">
       <label class="gf-form-label query-keyword width-8">Query Type</label>
         <div class="gf-form-select-wrapper">
           <select ng-model="ctrl.target.query_type" class="gf-form-input"
@@ -64,7 +64,7 @@
           </select>
         </div>
     </div>
-    <div class="gf-form max-width-25">
+    <div class="gf-form max-width-20">
       <label class="gf-form-label query-keyword width-8">
         Metric
       </label>

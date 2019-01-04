@@ -124,10 +124,8 @@ def query(request):
         metricNames = parse_glob(target['target'])
         if 'scopedVars' in req:
             scopedVars = req['scopedVars']
-            # log.write("scopedVars {0}".format(scopedVars))
             if 'metric' in scopedVars:
                 metric = scopedVars['metric']
-                # log.write("metric {0}".format(metric))
                 metricNames = [ str(metric['text' ]) ]
         if 'job_id' in target:
             jobId = int(target['job_id'])
@@ -146,7 +144,6 @@ def query(request):
         if 'format' in target:
             fmt = target['format']
         else:
-            log.write("Missing format in target")
             fmt = "time_series"
         if fmt == 'job_table':
             result = model.getJobTable(0, start, end)
@@ -216,14 +213,10 @@ def query(request):
 # ^search
 def search(request):
     try:
-        log.write("Enter search")
-
         body = request.body
         req = json.loads(body)
-        # log.write(req)
 
         referer = request.META['HTTP_REFERER']
-        # log.write(referer)
 
         # The first parameter in the target is the desired data:
         # - SCHEMA   Schema in the container:
@@ -292,7 +285,6 @@ def search(request):
 # ^annotations
 def annotations(request):
     try:
-        log.write("Enter annotations")
         annotes = []
         body = request.body
         req = json.loads(body)
@@ -341,7 +333,6 @@ def annotations(request):
                 # Job start annotation
                 entry['annotation'] = annotation
                 entry["text"] = 'Job ' + job_id + ' started'
-                # obj["tags"] =  "comp_id "+repr(int(m['comp_id']))
                 job_start = int(jobs['job_start', row])
                 entry["time"] = job_start
                 entry["title"] = "Job Id " + job_id
@@ -356,14 +347,12 @@ def annotations(request):
                     entry["time"] = job_end
                     entry["title"] = "Job Id " + job_id
                 annotes.append(entry)
-            # log.write("annotes {0}".format(json.dumps(annotes)))
         elif note_type == 'LOGS':
             start = int(start.strftime('%s'))
             end = int(end.strftime('%s'))
             annotes = models_baler.MsgAnnotations(cont, start, end, int(compId), ptnId, annotation)
         else:
             raise ValueError("Unrecognized annotation type '{0}'.".format(note_type))
-
         return HttpResponse(json.dumps(annotes), content_type='application/json')
 
     except Exception as e:

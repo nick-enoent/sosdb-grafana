@@ -213,7 +213,10 @@ class Query(object):
                 #    inp = Downsample(src, maxDataPoints+1024, intervalMs * 1000)
                 #else:
                 inp = None
-                res = src.get_results(inputer=inp, limit=maxDataPoints)
+                if intervalMs > 1000:
+                    res = src.get_results(inputer=inp, limit=maxDataPoints)
+                else:
+                    res = src.get_results(inputer=inp, limit=maxDataPoints, interval_ms=intervalMs)
                 if res is None:
                     return None
                 result.append({ "comp_id" : comp_id, "metric" : metric, "datapoints" :

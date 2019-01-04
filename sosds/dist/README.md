@@ -36,10 +36,19 @@ Access-Control-Allow-Origin:*
 ```
 
 ### Search API
-
+These template variables can be defined in the dashboard settings under "variables".
 Example request
-``` javascript
-{ target: 'bwx&sample' }
+	The first parameter in teh target is the desired data
+		SCHEMA:
+			Syntax: query=schema&container=<cont_name>
+		INDEX:
+			Syntax: query=index&container=<cont_name>&schema=<schema_name>
+		METRICS:
+			Syntax: query=metrics&container=<cont_name>&schema=<schema_name>
+		COMPONENTS:
+			Syntax: query=components&container=<cont_name>&schema=<schema_name>
+		JOBS:
+			Syntax: query=jobs&container=<cont_name>&schema=<schema_name>
 ```
 
 The search api can either return an array or map.
