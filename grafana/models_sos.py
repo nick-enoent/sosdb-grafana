@@ -209,11 +209,8 @@ class Query(object):
                            ],
                            order_by = 'comp_time'
                        )
-                #if intervalMs > 1000:
-                #    inp = Downsample(src, maxDataPoints+1024, intervalMs * 1000)
-                #else:
                 inp = None
-                if intervalMs > 1000:
+                if intervalMs < 1000:
                     res = src.get_results(inputer=inp, limit=maxDataPoints)
                 else:
                     res = src.get_results(inputer=inp, limit=maxDataPoints, interval_ms=intervalMs)
