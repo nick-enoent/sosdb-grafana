@@ -244,16 +244,13 @@ class Query(object):
         if not res:
             return res
 
-        x.dup()
+        result = x.dup()
         x.min([ 'job_start' ], group_name='job_id',
               keep=[ 'job_id', 'app_id', 'job_name', 'job_user', 'job_status' ],
               xfrm_suffix='')
-        result = DataSet()
-        result.append(x.pop())
+        result.concat(x.pop())
         x.max([ 'job_end' ], group_name='job_id', xfrm_suffix='')
-        result.append(x.pop(), series=[ 'job_end' ])
-        result['job_start'] *= 1000
-        result['job_end'] *= 1000
+        result.concat(x.pop())
         return result
 
     def getTable(self, schemaName, metricNames, start, end):
