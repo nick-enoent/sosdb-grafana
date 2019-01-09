@@ -305,10 +305,6 @@ def annotations(request):
         if cont_name is None:
             raise ValueError("Missing container name")
 
-        cont = models_baler.GetBstore(cont_name)
-        if cont is None:
-            raise ValueError("Container '{0}' could not be opened.".format(cont_name))
-
         jobId = parameters['job_id']
         compId = parameters['comp_id']
         if not parameters['ptn_id']:
@@ -320,26 +316,31 @@ def annotations(request):
                 ptnId[x] = int(ptnId[x])
                 x += 1
         if note_type == 'JOB_MARKERS':
+            cont = get_container(cont_name)
+            if cont is None:
+                raise ValueError("Container '{0}' could not be opened.".format(cont_name))
             model = models_sos.Annotations(cont=cont)
             jobs = model.getJobMarkers(start, end, jobId=jobId, compId=compId)
             if jobs is None:
                 raise ValueError("No data returned for jobId {0} compId {1} start {2} end {3}".\
                                  format(jobId, compId, start, end))
-
+            jid = jobs.array('job_id')
+            jstart = jobs.array('job_start')
+            jend = jobs.array('job_end')
             for row in range(0, jobs.get_series_size()):
                 entry = {}
-                job_id = str(jobs['job_id', row])
+                job_id = str(jid[row])
 
                 # Job start annotation
+                job_start = int(jstart[row])
                 entry['annotation'] = annotation
                 entry["text"] = 'Job ' + job_id + ' started'
-                job_start = int(jobs['job_start', row])
                 entry["time"] = job_start
                 entry["title"] = "Job Id " + job_id
                 annotes.append(entry)
 
                 # Job end annotation
-                job_end = int(jobs['job_end', row])
+                job_end = int(jend[row])
                 if job_end > job_start:
                     entry = {}
                     entry['annotation'] = annotation
@@ -348,6 +349,9 @@ def annotations(request):
                     entry["title"] = "Job Id " + job_id
                 annotes.append(entry)
         elif note_type == 'LOGS':
+            cont = models_baler.GetBstore(cont_name)
+            if cont is None:
+                raise ValueError("Container '{0}' could not be opened.".format(cont_name))
             start = int(start.strftime('%s'))
             end = int(end.strftime('%s'))
             annotes = models_baler.MsgAnnotations(cont, start, end, int(compId), ptnId, annotation)

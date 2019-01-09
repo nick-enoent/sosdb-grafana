@@ -251,6 +251,10 @@ class Query(object):
         result.concat(x.pop())
         x.max([ 'job_end' ], group_name='job_id', xfrm_suffix='')
         result.concat(x.pop())
+        nda = result.array('job_start')
+        nda *= 1000
+        nda1 = result.array('job_end')
+        nda1 *= 1000
         return result
 
     def getTable(self, schemaName, metricNames, start, end):
@@ -319,12 +323,13 @@ class Annotations(object):
         if not res:
             return res
         # x.top().show()
-        x.dup()
+        result = x.dup()
         x.min([ 'job_start' ], group_name='job_id', xfrm_suffix='')
-        result = DataSet()
-        result.append(x.pop())
+        result.concat(x.pop())
         x.max([ 'job_end' ], group_name='job_id', xfrm_suffix='')
-        result.append(x.pop(), series=[ 'job_end' ])
-        result['job_start'] *= 1000
-        result['job_end'] *= 1000
+        result.concat(x.pop())
+        nda = result.array('job_start')
+        nda *= 1000
+        nda1 = result.array('job_end')
+        nda1 *= 1000
         return result
