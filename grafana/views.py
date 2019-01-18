@@ -15,11 +15,9 @@ log = logging.MsgLog("Grafana Views ")
 containers = {}
 
 def get_container(cont_name):
-    # log.write("Container get {0}".format(cont_name))
     if cont_name in containers:
         return containers[cont_name]
     path = settings.SOS_ROOT + '/' + cont_name
-    log.write("Opening container {0}".format(path))
     cont = Sos.Container(path)
     containers[cont_name] = cont
     return cont
@@ -91,10 +89,9 @@ def ok(request):
 # ^query
 def query(request):
     try:
-        log.write("Enter query")
+        a = dt.datetime.now()
         body = request.body
         req = json.loads(body)
-        # log.write(req)
 
         date_range = req['range']
         start = parse_date_iso8601(date_range['from'])
@@ -112,7 +109,7 @@ def query(request):
         # to display window
         if endMs < startMs:
             endMs = startMs + (intervalMs * maxDataPoints)
-
+        maxDataPoints = (endMs - startMs) / intervalMs
         target = req['targets'][0]
         cont_name = str(target['container'])
         cont = get_container(cont_name)
@@ -148,6 +145,8 @@ def query(request):
         if fmt == 'job_table':
             result = model.getJobTable(0, start, end)
             columns = []
+            if not result:
+                return [ { "columns" : [], "rows" : [], "type" : "table" } ]
             for ser in result.series:
                 columns.append({ "text" : ser })
             rows = result.tolist()
@@ -158,6 +157,8 @@ def query(request):
                                     metricNames,
                                     start, end)
             columns = []
+            if not result:
+                return [ {"columns" : [], "rows" : [], "type" : "table" } ]
             for ser in result.series:
                 columns.append({ "text" : ser })
             rows = result.tolist()
@@ -189,7 +190,7 @@ def query(request):
                                                  'timestamp',
                                                  start, end,
                                                  intervalMs,
-                                                 1024)
+                                                 maxDataPoints)
                 if result:
                     for res in result:
                         res_list.append({ 'target' : '[' + str(res['comp_id']) + ']'
@@ -198,7 +199,6 @@ def query(request):
                 else:
                     res_list = [{ 'target' : '[???]:' + str(metricNames),
                                           'datapoints' : [] }]
-
         else:
             res_list = [ { "target" : "error",
                            "datapoints" : "unrecognized format {0}".format(fmt) } ]

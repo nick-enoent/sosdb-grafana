@@ -17,7 +17,6 @@ class Search(object):
         self.cont = cont
 
     def getSchema(self, cont):
-        log.write("getSchema")
         self.schemas = {}
         schemas = {}
         for schema in self.cont.schema_iter():
@@ -26,7 +25,6 @@ class Search(object):
         return schemas
 
     def getIndices(self, cont, schema_name):
-        log.write("getIndices")
         schema = cont.schema_by_name(schema_name)
         indices = {}
         for attr in schema:
@@ -36,7 +34,6 @@ class Search(object):
         return indices
 
     def getMetrics(self, cont, schema_name):
-        log.write("getMetrics")
         schema = cont.schema_by_name(schema_name)
         attrs = {}
         for attr in schema:
@@ -46,7 +43,6 @@ class Search(object):
         return attrs
 
     def getComponents(self, cont, schema_name, start, end):
-        log.write("getComponents")
         schema = cont.schema_by_name(schema_name)
         attr = schema.attr_by_name("component_id")
         if attr is None:
@@ -73,9 +69,6 @@ class Search(object):
         return result
 
     def getJobs(self, cont, schema_name, start, end):
-        log.write("getJobs")
-        # log.write("getJobs schema {0} start {1} end {2}".\
-        #           format(schema_name, start, end))
         schema = cont.schema_by_name(schema_name)
         attr = schema.attr_by_name("job_id")
         if attr is None:
@@ -141,10 +134,6 @@ class Query(object):
 
     def getJobTimeseries(self, schemaName,  jobId, metricNames,
                          timestamp, start, end,dataPoints):
-        log.write("getJobTimeseries schemaName '{0}', metricNames '{1}',"\
-                  "timestamp '{2}', start {3}, end {4}, jobId {5}, dataPoints {6}".\
-                  format(schemaName, metricNames,
-                      timestamp, start, end, jobId, dataPoints))
         src = SosDataSource()
         src.config(cont=self.cont)
 
@@ -173,10 +162,6 @@ class Query(object):
 
     def getCompTimeseries(self, schemaName, compIds, metricNames,
                          timestamp, start, end, intervalMs, maxDataPoints):
-        log.write("getCompTimeseries schemaName '{0}', metricNames '{1}',"\
-                  "timestamp '{2}', start {3}, end {4}, compIds {5}, intervalMs {6}, maxDataPoints {7}".\
-                  format(schemaName, metricNames,
-                      timestamp, start, end, compIds, intervalMs, maxDataPoints))
         src = SosDataSource()
         src.config(cont=self.cont)
 
@@ -214,6 +199,11 @@ class Query(object):
                     res = src.get_results(inputer=inp, limit=maxDataPoints)
                 else:
                     res = src.get_results(inputer=inp, limit=maxDataPoints, interval_ms=intervalMs)
+                    while len(res.array('timestamp')) < maxDataPoints:
+                        rs = src.get_results(inputer=inp, limit=maxDataPoints, interval_ms=intervalMs, reset=False)
+                        if not len(rs.array('timestamp')):
+                            break
+                        res = res.concat(rs)
                 if res is None:
                     return None
                 result.append({ "comp_id" : comp_id, "metric" : metric, "datapoints" :
@@ -222,8 +212,6 @@ class Query(object):
 
     def getJobTable(self, jobId, start, end):
         """Return a table of jobs run in the specified time interval"""
-        log.write("getJobTable: jobId {0}, start {1}, end {2}".\
-                  format(jobId, start, end))
         src = SosDataSource()
         src.config(cont=self.cont)
         where = [
@@ -258,9 +246,6 @@ class Query(object):
         return result
 
     def getTable(self, schemaName, metricNames, start, end):
-        log.write("getTable schemaName '{0}', metricNames '{1}', "\
-                  "start {2}, end {3}".\
-                  format(schemaName, metricNames, start, end))
         src = SosDataSource()
         src.config(cont=self.cont)
         src.select(metricNames,
@@ -289,8 +274,6 @@ class Annotations(object):
         jobId - Show only markers for the specified job
         compId - Show only markers for the specified component
         """
-        log.write("getJobMarkers: start {0}, end {1}, "
-                  "jobId {2}, compId {3}".format(start, end, jobId, compId))
         src = SosDataSource()
         src.config(cont=self.cont)
 
