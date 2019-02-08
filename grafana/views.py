@@ -109,7 +109,6 @@ def query(request):
         # to display window
         if endMs < startMs:
             endMs = startMs + (intervalMs * maxDataPoints)
-        maxDataPoints = (endMs - startMs) / intervalMs
         target = req['targets'][0]
         cont_name = str(target['container'])
         cont = get_container(cont_name)
@@ -124,6 +123,10 @@ def query(request):
             if 'metric' in scopedVars:
                 metric = scopedVars['metric']
                 metricNames = [ str(metric['text' ]) ]
+        if 'index' in target:
+            index = str(target['index'])
+        else:
+            index = 'timestamp'
         if 'job_id' in target:
             jobId = int(target['job_id'])
         else:
@@ -151,20 +154,27 @@ def query(request):
                 columns.append({ "text" : ser })
             rows = result.tolist()
             res_list = [ { "columns" : columns, "rows" : rows, "type": "table" } ]
-            s = json.dumps(res_list)
         elif fmt == 'table':
             result = model.getTable(schemaName,
+                                    index,
                                     metricNames,
                                     start, end)
-            columns = []
             if not result:
                 return [ {"columns" : [], "rows" : [], "type" : "table" } ]
+            columns = []
             for ser in result.series:
                 columns.append({ "text" : ser })
             rows = result.tolist()
             res_list = [ { "columns" : columns, "rows" : rows, "type": "table" } ]
-            s = json.dumps(res_list)
-
+        elif fmt == 'papi_job_summary':
+            res_list = model.getPapiSumTable(schemaName, jobId)
+        elif fmt == 'papi_rank_table':
+            res_list = model.getMeanPapiRankTable(schemaName, jobId)
+        elif fmt == 'papi_timeseries':
+            res_list = model.getPapiTimeseries(schemaName, metricNames, jobId, int(startS),
+                                               int(endS), intervalMs, maxDataPoints)
+        elif fmt == 'like_jobs':
+            res_list = model.papiGetLikeJobs(schemaName, jobId, startS, endS)
         elif fmt == 'time_series':
             if jobId != 0:
                 result = model.getJobTimeseries(schemaName,

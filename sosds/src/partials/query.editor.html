@@ -7,7 +7,7 @@
       </label>
         <div class="gf-form-select-wrapper">
           <select ng-model="ctrl.target.format" class="gf-form-input" placeholder="format"
-	          ng-options="qt as qt for qt in ['time_series', 'table', 'job_table']"
+    	          ng-options="qt as qt for qt in ['time_series', 'table', 'job_table','papi_rank_table','papi_job_summary','like_jobs','papi_timeseries']"
                   data-min-length=0 data-items=100
                   ng-blur="ctrl.onChangeInternal()">
           </select>
