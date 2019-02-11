@@ -252,6 +252,7 @@ class Query(object):
                         if job.array('rank')[i-1] != job.array('rank')[i]:
                             result.append({"target" : '['+str(job.array('rank')[i-1])+']'+metric,
                                            "datapoints" : datapoints })
+                            datapoints = []
                     dp = [ job.array(metric)[i], job.array('timestamp')[i]/1000 ]
                     datapoints.append(dp)
                     i += 1
