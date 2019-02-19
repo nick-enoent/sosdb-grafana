@@ -250,13 +250,13 @@ class Query(object):
                 while i < len(job.array(metric)):
                     if i > 0:
                         if job.array('rank')[i-1] != job.array('rank')[i]:
-                            result.append({"target" : '['+str(job.array('rank')[i-1])+']'+metric,
+                            result.append({"target" : '[Rank'+str(job.array('rank')[i-1])+']'+metric,
                                            "datapoints" : datapoints })
                             datapoints = []
                     dp = [ job.array(metric)[i], job.array('timestamp')[i]/1000 ]
                     datapoints.append(dp)
                     i += 1
-                result.append({"target" : '['+str(job.array('rank')[i-1])+']'+metric,
+                result.append({"target" : '[Rank'+str(job.array('rank')[i-1])+']'+metric,
                                "datapoints" : datapoints })
             return result
         except Exception as e:
@@ -328,7 +328,7 @@ class Query(object):
         if jobId != 0:
             where.insert(0, [ 'job_id', Sos.COND_EQ, jobId ])
 
-        src.select([ '*' ],
+        src.select([ 'job_id','user_id','job_start','job_end','job_exit_status','job_user','job_name' ],
                    from_ = [ 'jobinfo' ],
                    where = where,
                    order_by = 'timestamp'
@@ -341,7 +341,7 @@ class Query(object):
 
         result = x.dup()
         x.min([ 'job_start' ], group_name='job_id',
-              keep=[ 'job_id', 'app_id', 'job_name', 'job_user', 'job_status' ],
+              keep=[ 'job_id', 'job_name', 'job_user' ],
               xfrm_suffix='')
         result.concat(x.pop())
         x.max([ 'job_end' ], group_name='job_id', xfrm_suffix='')
@@ -350,7 +350,34 @@ class Query(object):
         nda *= 1000
         nda1 = result.array('job_end')
         nda1 *= 1000
-        return result
+        i = 0
+        rows = []
+        cols = []
+        jids = []
+        cols = [ { "text" : "job_id" },
+                { "text" : "user_id" },
+                { "text" : "job_start" },
+                { "text" : "job_end" },
+                { "text" : "job_exit_status" },
+                { "text" : "job_user" },
+                { "text" : "job_name" }
+               ]
+        while i < result.get_series_size() - 1:
+            row = []
+            if result.array('job_id')[i] in jids:
+                pass
+            else:
+                jids.append(result.array('job_id')[i])
+                row.append(result.array('job_id')[i])
+                row.append(result.array('user_id')[i])
+                row.append(result.array('job_start')[i])
+                row.append(result.array('job_end')[i])
+                row.append(result.array('job_exit_status')[i])
+                row.append(result.array('job_user')[i])
+                row.append(result.array('job_name')[i])
+                rows.append(row)
+            i += 1
+        return cols, rows
 
     def getTable(self, schemaName, index, metricNames, start, end):
         src = SosDataSource()
@@ -407,7 +434,7 @@ class Query(object):
             return res
         except Exception as e:
             a, b, c = sys.exc_info()
-            log.write('getPapiSumTable Err: '+str(e)+str(c.tb_lineno))
+            log.write('getPapiSumTable Err: '+str(e)+' '+str(c.tb_lineno))
             return None
 
     def papiGetLikeJobs(self, schemaName, job_id, start, end):
@@ -433,13 +460,13 @@ class Query(object):
                 [ 'start_time', Sos.COND_GE, start ],
                 [ 'start_time', Sos.COND_LE, end ]
             ]
-            jobData.select([ 'job_id' ],
+            jobData.select([ 'job_id', 'user_id' ],
                             from_ = [ 'kokkos_app' ],
                             where = where,
                             order_by = 'inst_job_app_time',
                             unique = True)
             res = jobData.get_results()
-            result["columns"] = [ { "text" : "job_id" } ]
+            result["columns"] = [ { "text" : "job_id" }, { "text" : "user_id" } ]
             result["rows"] = res.tolist()
             result["type"] = "table"
             return [ result ]
@@ -452,8 +479,10 @@ class Query(object):
         """Return mean papi metrics across ranks for a given job_id"""
         if not job_id:
             log.write('No job_id')
-            return None
+            return [ { "columns" : [{"text":"No Job Id specified"}], "rows" : [], "type" : "table" } ]
         xfrm, job = self.getPapiDerivedMetrics(job_id)
+        if not xfrm:
+            return [ { "columns" : [], "rows" : [], "type" : "table" } ]
         xfrm.push(job)
         idx = job.series.index('tot_ins')
         series = job.series[idx:]
@@ -479,6 +508,8 @@ class Query(object):
             rows.append(row)
         result["rows"] = rows
         result["type"] = "table"
+        if not result:
+            return [ { "columns" : [], "rows" : [], "type" : "table" } ]
         return [ result ]
 
     def getPapiDerivedMetrics(self, job_id, time_series=False, start=None, end=None):
@@ -510,7 +541,7 @@ class Query(object):
             nodes = job_comp_end.array('node_id')
             xfrm = Transform(src, None, limit=self.maxDataPoints)
 
-            res = xfrm.begin(count=self.maxDataPoints)
+            res = xfrm.begin(count=4096)
             if res is None:
                 # Job too short to record data
                 print('no res')
@@ -693,7 +724,7 @@ class Query(object):
         except Exception as e:
             a, b, c = sys.exc_info()
             log.write('papiRankStats '+str(e)+' '+str(c.tb_lineno))
-            return str(e)
+            return (None, None, None, None)
 
 class Annotations(object):
     def __init__(self, cont):

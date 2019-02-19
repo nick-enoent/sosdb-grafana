@@ -146,13 +146,9 @@ def query(request):
         else:
             fmt = "time_series"
         if fmt == 'job_table':
-            result = model.getJobTable(0, start, end)
-            columns = []
-            if not result:
+            columns, rows = model.getJobTable(0, start, end)
+            if not columns:
                 return [ { "columns" : [], "rows" : [], "type" : "table" } ]
-            for ser in result.series:
-                columns.append({ "text" : ser })
-            rows = result.tolist()
             res_list = [ { "columns" : columns, "rows" : rows, "type": "table" } ]
         elif fmt == 'table':
             result = model.getTable(schemaName,
