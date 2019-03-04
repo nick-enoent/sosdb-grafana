@@ -139,7 +139,7 @@ def query(request):
                 compId = int(compId)
         else:
             compId = None
-        model = models_sos.Query(cont)
+        model = models_sos.Query(cont, schemaName)
         res_list = []
         if 'format' in target:
             fmt = target['format']
@@ -151,8 +151,7 @@ def query(request):
                 return [ { "columns" : [], "rows" : [], "type" : "table" } ]
             res_list = [ { "columns" : columns, "rows" : rows, "type": "table" } ]
         elif fmt == 'table':
-            result = model.getTable(schemaName,
-                                    index,
+            result = model.getTable(index,
                                     metricNames,
                                     start, end)
             if not result:
@@ -163,20 +162,19 @@ def query(request):
             rows = result.tolist()
             res_list = [ { "columns" : columns, "rows" : rows, "type": "table" } ]
         elif fmt == 'papi_job_summary':
-            res_list = model.getPapiSumTable(schemaName, jobId)
+            res_list = model.getPapiSumTable(jobId, int(startS), int(endS))
         elif fmt == 'papi_rank_table':
-            res_list = model.getMeanPapiRankTable(schemaName, jobId)
+            res_list = model.getMeanPapiRankTable(jobId, int(startS), int(endS))
         elif fmt == 'papi_timeseries':
-            res_list = model.getPapiTimeseries(schemaName, metricNames, jobId, int(startS),
-                                               int(endS), intervalMs, maxDataPoints)
+            log.write(str(compId))
+            res_list = model.getPapiTimeseries(metricNames, jobId, int(startS),
+                                               int(endS), intervalMs, maxDataPoints, comp_id=compId)
         elif fmt == 'like_jobs':
-            res_list = model.papiGetLikeJobs(schemaName, jobId, startS, endS)
+            res_list = model.papiGetLikeJobs(jobId, startS, endS)
         elif fmt == 'time_series':
             if jobId != 0:
-                result = model.getJobTimeseries(schemaName,
-                                                jobId,
+                result = model.getJobTimeseries(jobId,
                                                 metricNames,
-                                                'timestamp',
                                                 start, end,
                                                 maxDataPoints)
                 if result:
@@ -190,10 +188,8 @@ def query(request):
                                           'datapoints' : [] }]
 
             else:
-                result = model.getCompTimeseries(schemaName,
-                                                 compId,
+                result = model.getCompTimeseries(compId,
                                                  metricNames,
-                                                 'timestamp',
                                                  start, end,
                                                  intervalMs,
                                                  maxDataPoints)
@@ -268,7 +264,7 @@ def search(request):
                 end = parse_referer_date(query_dict['to'])
             else:
                 end = 0
-            resp = model.getComponents(cont, schema, start, end)
+            resp = model.getComponents(start, end)
         elif query.lower() == "jobs":
             query_dict = QueryDict(referer)
             if 'from' in query_dict:
