@@ -1,5 +1,6 @@
 from django.db import models
 import datetime as dt
+import time
 import os, sys, traceback
 from sosdb import Sos, bollinger
 from sosgui import settings, logging
@@ -11,6 +12,13 @@ import time
 import numpy as np
 
 log = logging.MsgLog("Grafana SOS")
+
+job_state_str = {
+    1 : "starting",
+    2 : "running",
+    3 : "stopping",
+    4 : "completed"
+}
 
 papi_metrics = [ 
     "PAPI_TOT_INS",
@@ -377,6 +385,7 @@ class Query(object):
                  { "text" : "Cache Dashboards" },
                  { "text" : "job_size" },
                  { "text" : "user_id" },
+                 { "text" : "job_state" },
                  { "text" : "job_start" },
                  { "text" : "job_end" },
                  { "text" : "task_exit_status" }
@@ -392,8 +401,12 @@ class Query(object):
                 row.append('Cache Stats')
                 row.append(result.array('job_size')[i])
                 row.append(result.array('uid')[i])
+                row.append(job_state_str[result.array('job_state')[i])
                 row.append(result.array('job_start')[i])
-                row.append(result.array('job_end')[i])
+                if result.array('job_end')[i] != 0:
+                    row.append(result.array('job_end')[i])
+                else:
+                    row.append(time.time())
                 row.append(result.array('task_exit_status')[i])
                 #row.append(result.array('job_user')[i])
                 #row.append(result.array('job_name')[i])
