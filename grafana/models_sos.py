@@ -354,7 +354,7 @@ class Query(object):
         if jobId != 0:
             where.insert(0, [ 'job_id', Sos.COND_EQ, jobId ])
 
-        src.select([ 'job_id','job_size', 'uid','job_start','job_end','task_exit_status' ],
+        src.select([ 'job_id','job_size', 'uid','job_start','job_end','job_state','task_exit_status' ],
                    from_ = [ self.schemaName ],
                    where = where,
                    order_by = 'timestamp'
@@ -401,12 +401,12 @@ class Query(object):
                 row.append('Cache Stats')
                 row.append(result.array('job_size')[i])
                 row.append(result.array('uid')[i])
-                row.append(job_state_str[result.array('job_state')[i])
+                row.append(job_state_str[result.array('job_state')[i]])
                 row.append(result.array('job_start')[i])
                 if result.array('job_end')[i] != 0:
                     row.append(result.array('job_end')[i])
                 else:
-                    row.append(time.time())
+                    row.append(time.time()*1000)
                 row.append(result.array('task_exit_status')[i])
                 #row.append(result.array('job_user')[i])
                 #row.append(result.array('job_name')[i])
@@ -533,7 +533,6 @@ class Query(object):
         result = {}
         rows = []
         columns = []
-        # series_names = job.series
         series_names = [ 'timestamp', 'job_id', 'component_id',
                          'rank',
                          'cpi', 'uopi',
@@ -565,7 +564,6 @@ class Query(object):
     def getPapiDerivedMetrics(self, job_id, time_series=False, start=None, end=None):
         """Calculate derived papi metrics for a given job_id"""
         try:
-            log.write('getPapiDerivedMetrics {0}'.format(job_id))
             src = SosDataSource()
             src.config(cont=self.cont)
             src.select(
@@ -591,7 +589,6 @@ class Query(object):
                     # concatenate TOP and TOP~1
                     xfrm.concat()
 
-            log.write('getPapiDerivedMetrics {0}'.format('Here!!'))
             # result now on top of stack
             result = xfrm.pop()                  # result on top
             # "Normalize" the event names
@@ -738,7 +735,7 @@ class Annotations(object):
             by = 'timestamp'
 
         src.select([ 'job_id', 'job_start', 'job_end' ],
-                       from_ = [ 'jobinfo' ],
+                       from_ = [ 'mt-slurm' ],
                        where = where,
                        order_by = by
                    )
