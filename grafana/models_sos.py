@@ -2,7 +2,7 @@ from django.db import models
 import datetime as dt
 import time
 import os, sys, traceback
-from sosdb import Sos, bollinger
+from sosdb import Sos
 from sosgui import settings, logging
 from numsos.DataSource import SosDataSource
 from numsos.Transform import Transform

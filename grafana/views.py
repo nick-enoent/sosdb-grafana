@@ -8,7 +8,10 @@ import datetime as dt
 import time
 import sys
 import models_sos
-import models_baler
+try:
+    import models_baler
+except:
+    pass
 import json
 
 log = logging.MsgLog("Grafana Views ")
