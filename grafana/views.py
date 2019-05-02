@@ -221,7 +221,20 @@ def search(request):
         body = request.body
         req = json.loads(body)
 
-        referer = request.META['HTTP_REFERER']
+        if request.META.get('HTTP_REFERER') is not None:
+            referer = request.META['HTTP_REFERER']
+            query_dict = QueryDict(referer)
+            if 'from' in query_dict:
+                start = parse_referer_date(query_dict['from'])
+            else:
+                start = 0
+            if 'to' in query_dict:
+                end = parse_referer_date(query_dict['to'])
+            else:
+                end = 0
+        else:
+            start = 0
+            end = 0
 
         # The first parameter in the target is the desired data:
         # - SCHEMA   Schema in the container:
@@ -245,6 +258,8 @@ def search(request):
         model = models_sos.Search(cont)
         resp = {}
 
+        if not parms['schema']:
+            return HttpResponse(json.dumps(["Error", "Schema is required"]), content_type='application/json')
         schema = parms['schema']
         query = parms['query']
         if query.lower() != "schema" and schema is None:
@@ -255,35 +270,18 @@ def search(request):
             resp = model.getSchema(cont)
         elif query.lower() == "index":
             resp = model.getIndices(cont, schema)
-        elif query.lower() == "metric":
+        elif query.lower() == "metrics":
             resp = model.getMetrics(cont, schema)
         elif query.lower() == "components":
-            query_dict = QueryDict(referer)
-            if 'from' in query_dict:
-                start = parse_referer_date(query_dict['from'])
-            else:
-                start = 0
-            if 'to' in query_dict:
-                end = parse_referer_date(query_dict['to'])
-            else:
-                end = 0
-            resp = model.getComponents(start, end)
+            resp = model.getComponents(cont, schema, start, end)
         elif query.lower() == "jobs":
-            query_dict = QueryDict(referer)
-            if 'from' in query_dict:
-                start = parse_referer_date(query_dict['from'])
-            else:
-                start = 0
-            if 'to' in query_dict:
-                end = parse_referer_date(query_dict['to'])
-            else:
-                end = 0
             resp = model.getJobs(cont, schema, start, end)
 
         return HttpResponse(json.dumps(resp), content_type = 'application/json')
 
     except Exception as e:
-        log.write("search: {0}".format(e.message))
+        a,b,c = sys.exc_info()
+        log.write("search: {0}".format(e.message)+' '+str(c.tb_lineno))
         return HttpResponse(json.dumps(e.message.split(' ')),
                             content_type='application/json')
 
