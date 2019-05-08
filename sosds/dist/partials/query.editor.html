@@ -35,6 +35,16 @@
     </div>
     <div class="gf-form max-width-20">
       <label class="gf-form-label query-keyword width-8">
+        Index
+      </label>
+      <input type="text" class="gf-form-input" spellcheck='false' ng-model='ctrl.target.index'
+                                               placeholder="index name"
+                                               data-min-length=0 data-items=100
+                                               ng-blur="ctrl.onChangeInternal()">
+      </input>
+    </div>
+    <div class="gf-form max-width-20">
+      <label class="gf-form-label query-keyword width-8">
         Job ID
       </label>
       <input type="text" class="gf-form-input" spellcheck='false' ng-model='ctrl.target.job_id'
