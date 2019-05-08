@@ -135,8 +135,8 @@ def query(request):
         else:
             jobId = 0
         if 'comp_id' in target:
-            compId = target['comp_id']
-            if type(compId) == str and ('{' in compId or ',' in compId):
+            compId = str(target['comp_id'])
+            if ('{' in compId or ',' in compId):
                 compId = parse_glob(compId)
             else:
                 compId = int(compId)
@@ -169,7 +169,6 @@ def query(request):
         elif fmt == 'papi_rank_table':
             res_list = model.getMeanPapiRankTable(jobId, int(startS), int(endS))
         elif fmt == 'papi_timeseries':
-            log.write(str(compId))
             res_list = model.getPapiTimeseries(metricNames, jobId, int(startS),
                                                int(endS), intervalMs, maxDataPoints, comp_id=compId)
         elif fmt == 'like_jobs':
@@ -258,13 +257,12 @@ def search(request):
         model = models_sos.Search(cont)
         resp = {}
 
-        if not parms['schema']:
-            return HttpResponse(json.dumps(["Error", "Schema is required"]), content_type='application/json')
         schema = parms['schema']
         query = parms['query']
         if query.lower() != "schema" and schema is None:
             if schema is None:
                 raise ValueError("Error: The 'schema' parameter is missing from the search.")
+                return HttpResponse(json.dumps(["Error", "Schema is required"]), content_type='application/json')
 
         if query.lower() == "schema":
             resp = model.getSchema(cont)
