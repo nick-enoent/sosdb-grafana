@@ -142,7 +142,7 @@ def query(request):
                 compId = int(compId)
         else:
             compId = None
-        model = models_sos.Query(cont, schemaName)
+        model = models_sos.Query(cont, schemaName, index)
         res_list = []
         if 'format' in target:
             fmt = target['format']

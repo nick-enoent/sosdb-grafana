@@ -155,9 +155,10 @@ class Search(object):
         return result
 
 class Query(object):
-    def __init__(self, cont, schemaName):
+    def __init__(self, cont, schemaName, index='timestamp'):
         self.cont = cont
         self.schemaName = schemaName
+        self.index = index
         self.maxDataPoints = 4096
 
     def getJobComponents(self, job_id):
@@ -232,7 +233,7 @@ class Query(object):
                            [ 'timestamp', Sos.COND_GE, start ],
                            [ 'timestamp', Sos.COND_LE, end ],
                        ],
-                       order_by = 'comp_time'
+                       order_by = self.index
                    )
             res = src.get_results()
             if res is None:
@@ -323,7 +324,7 @@ class Query(object):
                                [ 'timestamp', Sos.COND_GE, start ],
                                [ 'timestamp', Sos.COND_LE, end ],
                            ],
-                           order_by = 'comp_time'
+                           order_by = self.index
                        )
                 inp = None
                 if intervalMs < 1000:
