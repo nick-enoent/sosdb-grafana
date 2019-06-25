@@ -238,10 +238,9 @@ class Query(object):
             res = src.get_results()
             if res is None:
                 continue
-            res['timestamp'] *= 1000
             l = res.series_size
             result.append({ "comp_id" : comp_id, "datapoints" :
-                            res.sets[0].array[:l].tolist() })
+                            res.tolist() })
         return result
 
     def getPapiTimeseries(self, metricNames, job_id,
