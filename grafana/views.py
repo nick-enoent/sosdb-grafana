@@ -178,7 +178,8 @@ def query(request):
                 result = model.getJobTimeseries(jobId,
                                                 metricNames,
                                                 start, end,
-                                                maxDataPoints)
+                                                intervalMs,
+                                                maxDataPoints, compIds=compId)
                 if result:
                     for res in result:
                         res_list.append({ 'target' : str(jobId) +

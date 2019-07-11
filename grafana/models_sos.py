@@ -172,7 +172,7 @@ class Query(object):
                    )
         res = src.get_results(limit=4096)
         if res:
-            ucomps = np.unique(res['component_id'])
+            ucomps = np.unique(res['component_id'].tolist())
             return ucomps
         return None
 
@@ -216,26 +216,45 @@ class Query(object):
         return None
 
     def getJobTimeseries(self, jobId, metricNames,
-                         start, end,dataPoints):
+                         start, end, intervalMs,
+                         maxDataPoints, compIds=None):
         """Return time series data for a particular job"""
         src = SosDataSource()
         src.config(cont=self.cont)
-
-        components = self.getJobComponents(jobId)
-        if components is None:
-            return []
+        if compIds is None:
+            components = self.getJobComponents(jobId)
+            if components is None:
+                return []
+        else:
+            if compIds != list:
+                components = [ int(compIds) ]
+            else:
+                components = compIds
         result = []
         for comp_id in components:
             src.select(metricNames + [ 'timestamp' ],
                        from_ = [ self.schemaName ],
                        where = [
-                           [ 'component_id', Sos.COND_EQ, comp_id ],
+                           [ 'job_id', Sos.COND_EQ, int(jobId) ],
+                           [ 'component_id', Sos.COND_EQ, int(comp_id) ],
                            [ 'timestamp', Sos.COND_GE, start ],
                            [ 'timestamp', Sos.COND_LE, end ],
                        ],
                        order_by = self.index
                    )
-            res = src.get_results()
+            inp = None
+            if intervalMs < 1000:
+                res = src.get_results(inputer=inp, limit=maxDataPoints)
+            else:
+                res = src.get_results(inputer=inp, limit=maxDataPoints, interval_ms=intervalMs)
+                while len(res.array(metric)) < maxDataPoints:
+                    rs = src.get_results(inputer=inp,
+                                         limit=maxDataPoints,
+                                         interval_ms=intervalMs,
+                                         reset=False)
+                    if not len(rs.array(metric)):
+                        break
+                    res  = res.concat(rs)
             if res is None:
                 continue
             l = res.series_size
@@ -301,7 +320,7 @@ class Query(object):
             if type(compIds) != list:
                 compIds = [ int(compIds) ]
         else:
-            src.select([ 'component_id', 'timestamp' ],
+            src.select([ 'component_id' ],
                        from_ = [ self.schemaName ],
                        where = [
                            [ 'timestamp', Sos.COND_GE, start ],
@@ -313,7 +332,7 @@ class Query(object):
             if not comps:
                 compIds = np.zeros(1)
             else:
-                compIds = np.unique(comps['component_id'])
+                compIds = np.unique(comps['component_id'].tolist())
         for comp_id in compIds:
             for metric in metricNames:
                 src.select([ metric, 'timestamp' ],
@@ -329,9 +348,13 @@ class Query(object):
                 if intervalMs < 1000:
                     res = src.get_results(inputer=inp, limit=maxDataPoints)
                 else:
+                    log.write('interval_ms '+str(intervalMs))
                     res = src.get_results(inputer=inp, limit=maxDataPoints, interval_ms=intervalMs)
                     while len(res.array(metric)) < maxDataPoints:
-                        rs = src.get_results(inputer=inp, limit=maxDataPoints, interval_ms=intervalMs, reset=False)
+                        rs = src.get_results(inputer=inp,
+                                             limit=maxDataPoints,
+                                             interval_ms=intervalMs,
+                                             reset=False)
                         if not len(rs.array(metric)):
                             break
                         res = res.concat(rs)
@@ -408,8 +431,6 @@ class Query(object):
                 else:
                     row.append(time.time()*1000)
                 row.append(result.array('task_exit_status')[i])
-                #row.append(result.array('job_user')[i])
-                #row.append(result.array('job_name')[i])
                 rows.append(row)
             i += 1
         return cols, rows
@@ -497,10 +518,6 @@ class Query(object):
             where = [
                 [ 'inst_data' , Sos.COND_EQ, res.array('inst_data')[0] ]
             ]
-            #if start > 0:
-            #    where.append([ 'start_time', Sos.COND_GE, start ])
-            #if end > 0:
-            #    where.append([ 'end_time', Sos.COND_LE, end])
             jobData.select([ 'job_id', 'user_id', 'job_name' ],
                             from_ = [ 'kokkos_app' ],
                             where = where,
