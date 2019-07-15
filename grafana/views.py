@@ -5,9 +5,11 @@ from sosgui import logging, settings
 from sosdb import Sos
 import traceback as tb
 import datetime as dt
+import _strptime
 import time
 import sys
 import models_sos
+
 try:
     import models_baler
 except:
@@ -131,7 +133,8 @@ def query(request):
         else:
             index = 'timestamp'
         if 'job_id' in target:
-            jobId = int(target['job_id'])
+            if target['job_id'] is not '' or None:
+                jobId = int(target['job_id'])
         else:
             jobId = 0
         if 'comp_id' in target:
@@ -174,36 +177,19 @@ def query(request):
         elif fmt == 'like_jobs':
             res_list = model.papiGetLikeJobs(jobId, startS, endS)
         elif fmt == 'time_series':
-            if jobId != 0:
-                result = model.getJobTimeseries(jobId,
-                                                metricNames,
-                                                start, end,
-                                                intervalMs,
-                                                maxDataPoints, compIds=compId)
-                if result:
-                    for res in result:
-                        res_list.append({ 'target' : str(jobId) +
-                                          '[' + str(res['comp_id']) + ']:'
-                                          + metricNames[0],
-                                          'datapoints' : res['datapoints']})
-                else:
-                    res_list = [{ 'target' : str(jobId) + '[???]:' + metricNames[0],
-                                          'datapoints' : [] }]
-
+            result = model.getCompTimeseries(compId,
+                                             metricNames,
+                                             int(startS), int(endS),
+                                             intervalMs,
+                                             maxDataPoints, jobId)
+            if result:
+                for res in result:
+                    res_list.append({ 'target' : '[' + str(res['comp_id']) + ']'
+                                      + str(res['metric']),
+                                      'datapoints' : res['datapoints']})
             else:
-                result = model.getCompTimeseries(compId,
-                                                 metricNames,
-                                                 start, end,
-                                                 intervalMs,
-                                                 maxDataPoints)
-                if result:
-                    for res in result:
-                        res_list.append({ 'target' : '[' + str(res['comp_id']) + ']'
-                                          + str(res['metric']),
-                                          'datapoints' : res['datapoints']})
-                else:
-                    res_list = [{ 'target' : '[???]:' + str(metricNames),
-                                          'datapoints' : [] }]
+                res_list = [{ 'target' : '[???]:' + str(metricNames),
+                                      'datapoints' : [] }]
         else:
             res_list = [ { "target" : "error",
                            "datapoints" : "unrecognized format {0}".format(fmt) } ]

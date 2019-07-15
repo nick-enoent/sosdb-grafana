@@ -215,53 +215,6 @@ class Query(object):
             return ucomps
         return None
 
-    def getJobTimeseries(self, jobId, metricNames,
-                         start, end, intervalMs,
-                         maxDataPoints, compIds=None):
-        """Return time series data for a particular job"""
-        src = SosDataSource()
-        src.config(cont=self.cont)
-        if compIds is None:
-            components = self.getJobComponents(jobId)
-            if components is None:
-                return []
-        else:
-            if compIds != list:
-                components = [ int(compIds) ]
-            else:
-                components = compIds
-        result = []
-        for comp_id in components:
-            src.select(metricNames + [ 'timestamp' ],
-                       from_ = [ self.schemaName ],
-                       where = [
-                           [ 'job_id', Sos.COND_EQ, int(jobId) ],
-                           [ 'component_id', Sos.COND_EQ, int(comp_id) ],
-                           [ 'timestamp', Sos.COND_GE, start ],
-                           [ 'timestamp', Sos.COND_LE, end ],
-                       ],
-                       order_by = self.index
-                   )
-            inp = None
-            if intervalMs < 1000:
-                res = src.get_results(inputer=inp, limit=maxDataPoints)
-            else:
-                res = src.get_results(inputer=inp, limit=maxDataPoints, interval_ms=intervalMs)
-                while len(res.array(metric)) < maxDataPoints:
-                    rs = src.get_results(inputer=inp,
-                                         limit=maxDataPoints,
-                                         interval_ms=intervalMs,
-                                         reset=False)
-                    if not len(rs.array(metric)):
-                        break
-                    res  = res.concat(rs)
-            if res is None:
-                continue
-            l = res.series_size
-            result.append({ "comp_id" : comp_id, "datapoints" :
-                            res.tolist() })
-        return result
-
     def getPapiTimeseries(self, metricNames, job_id,
                           start, end, intervalMs, maxDataPoints, comp_id=None):
         """Return time series data for papi-events schema"""
@@ -310,7 +263,7 @@ class Query(object):
             return None
 
     def getCompTimeseries(self, compIds, metricNames,
-                          start, end, intervalMs, maxDataPoints):
+                          start, end, intervalMs, maxDataPoints, jobId=0):
         """Return time series data for a particular component/s"""
         src = SosDataSource()
         src.config(cont=self.cont)
@@ -335,20 +288,24 @@ class Query(object):
                 compIds = np.unique(comps['component_id'].tolist())
         for comp_id in compIds:
             for metric in metricNames:
+                where_ = [
+                    [ 'component_id', Sos.COND_EQ, comp_id ],
+                    [ 'timestamp', Sos.COND_GE, start ],
+                    [ 'timestamp', Sos.COND_LE, end ]
+                ]
+                if jobId != 0:
+                    where_.append([ 'job_id', Sos.COND_EQ, int(jobId) ])
+                else:
+                    self.index = "comp_time"
                 src.select([ metric, 'timestamp' ],
                            from_ = [ self.schemaName ],
-                           where = [
-                               [ 'component_id', Sos.COND_EQ, comp_id ],
-                               [ 'timestamp', Sos.COND_GE, start ],
-                               [ 'timestamp', Sos.COND_LE, end ],
-                           ],
+                           where = where_,
                            order_by = self.index
                        )
                 inp = None
-                if intervalMs < 1000:
+                if intervalMs < 10:
                     res = src.get_results(inputer=inp, limit=maxDataPoints)
                 else:
-                    log.write('interval_ms '+str(intervalMs))
                     res = src.get_results(inputer=inp, limit=maxDataPoints, interval_ms=intervalMs)
                     while len(res.array(metric)) < maxDataPoints:
                         rs = src.get_results(inputer=inp,
