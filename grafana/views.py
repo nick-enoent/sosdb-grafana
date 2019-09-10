@@ -9,6 +9,7 @@ import _strptime
 import time
 import sys
 import models_sos
+import numpy as np
 
 try:
     import models_baler
@@ -102,6 +103,7 @@ def query(request):
         start = parse_date_iso8601(date_range['from'])
         end = parse_date_iso8601(date_range['to'])
         intervalMs = req['intervalMs']
+        interval = req['interval']
         maxDataPoints = req['maxDataPoints']
 
         startS = float(start.strftime('%s'))
@@ -131,7 +133,7 @@ def query(request):
         if 'index' in target:
             index = str(target['index'])
         else:
-            index = 'timestamp'
+            index = 'job_comp_time'
         if 'job_id' in target:
             if target['job_id'] is not '' or None:
                 jobId = int(target['job_id'])
@@ -145,54 +147,112 @@ def query(request):
                 compId = int(compId)
         else:
             compId = None
-        model = models_sos.Query(cont, schemaName, index)
         res_list = []
         if 'format' in target:
             fmt = target['format']
         else:
             fmt = "time_series"
-        if fmt == 'job_table':
-            columns, rows = model.getJobTable(0, start, end)
-            if not columns:
-                return [ { "columns" : [], "rows" : [], "type" : "table" } ]
-            res_list = [ { "columns" : columns, "rows" : rows, "type": "table" } ]
-        elif fmt == 'table':
-            result = model.getTable(index,
-                                    metricNames,
-                                    start, end)
-            if not result:
-                return [ {"columns" : [], "rows" : [], "type" : "table" } ]
-            columns = []
-            for ser in result.series:
-                columns.append({ "text" : ser })
-            rows = result.tolist()
-            res_list = [ { "columns" : columns, "rows" : rows, "type": "table" } ]
-        elif fmt == 'papi_job_summary':
+        if 'query_type' in target:
+            query_type = target['query_type']
+        if query_type == 'analysis':
+            try:
+                if 'analysis' in target:
+                    analysis = target['analysis']
+                else:
+                    return None
+                if 'extra_params' in target:
+                    if "threshold" in target['extra_params']:
+                        threshold = int(target['extra_params'].split('=')[1])
+                    else:
+                        threshold = 1
+                else:
+                    threshold = 1
+                res = None
+                import analysis as gf_analysis
+                model = gf_analysis.Analysis(cont, schemaName, index)
+                if analysis == 'comp_min_mean_max':
+                    res = model.compMinMeanMax(metricNames,
+                                               int(startS), int(endS),
+                                               interval,
+                                               maxDataPoints, jobId)
+                #import numsos.rank_mem_by_job as rmj
+                if analysis == 'mem_threshold':
+                    if "summary" in target['extra_params']:
+                        res = model.rankMemByJob(start=startS,
+                                                 end=endS, summary=True, job_id=jobId)
+                    elif threshold > 0:
+                        res = model.rankMemByJob(start=startS, 
+                                                 end=endS, threshold=abs(threshold))
+                    else:
+                        res = model.rankMemByJob(start=startS, end=endS,
+                                                 threshold=abs(threshold), low_not_high=True)
+                elif analysis == 'idle_mem_threshold':
+                    if threshold > 0:
+                        res = model.rankMemByJob(start=startS, end=endS,
+                                                 threshold=abs(threshold), idle=True)
+                    else:
+                        res = model.rankMemByJob(start=startS, end=endS,
+                                                 threshold=abs(threshold),
+                                                 low_not_high=True, idle=True)
+                if res is None:
+                    res = [ {"columns" : [{"text": "No Data"}],
+                            "rows" : [], "type" : "table" } ]
+                return HttpResponse(json.dumps(res), content_type='application/json')
+            except Exception as e:
+                a, b, c = sys.exc_info()
+                log.write(str(e)+' '+str(c.tb_lineno))
+                return HttpResponse(json.dumps([ {"columns" : [{ "text" : str(e) }],
+                                    "rows" : [[]], "type" : "table" } ]), content_type='application/json')
+        model = models_sos.Query(cont, schemaName, index)
+        if query_type == 'job_table':
+            try:
+                columns, rows = model.getJobTable(jobId, start, end)
+                res_list = [ { "columns" : columns, "rows" : rows, "type": "table" } ]
+            except Exception as e:
+                a, b, c = sys.exc_info()
+                log.write(str(e)+' '+str(c.tb_lineno))
+                raise Http404("oh shit")
+        elif query_type == 'papi_job_summary':
             res_list = model.getPapiSumTable(jobId, int(startS), int(endS))
-        elif fmt == 'papi_rank_table':
+        elif query_type == 'papi_rank_table':
             res_list = model.getMeanPapiRankTable(jobId, int(startS), int(endS))
-        elif fmt == 'papi_timeseries':
+        elif query_type == 'papi_timeseries':
             res_list = model.getPapiTimeseries(metricNames, jobId, int(startS),
                                                int(endS), intervalMs, maxDataPoints, comp_id=compId)
-        elif fmt == 'like_jobs':
+        elif query_type == 'like_jobs':
             res_list = model.papiGetLikeJobs(jobId, startS, endS)
-        elif fmt == 'time_series':
-            result = model.getCompTimeseries(compId,
-                                             metricNames,
-                                             int(startS), int(endS),
-                                             intervalMs,
-                                             maxDataPoints, jobId)
-            if result:
-                for res in result:
-                    res_list.append({ 'target' : '[' + str(res['comp_id']) + ']'
-                                      + str(res['metric']),
-                                      'datapoints' : res['datapoints']})
+        elif query_type == 'metrics':
+            if fmt == 'table':
+                result = model.getTable(index,
+                                        metricNames,
+                                        start, end)
+                if not result:
+                    return [ {"columns" : [], "rows" : [], "type" : "table" } ]
+                columns = []
+                for ser in result.series:
+                    columns.append({ "text" : ser })
+                rows = result.tolist()
+                res_list = [ { "columns" : columns, "rows" : rows, "type": "table" } ]
+            elif fmt == 'time_series':
+                startS = startS - (intervalMs/1000)
+                endS = endS + (intervalMs/1000)
+                result = model.getCompTimeseries(compId,
+                                                 metricNames,
+                                                 int(startS), int(endS),
+                                                 intervalMs,
+                                                 maxDataPoints, jobId)
+                if result:
+                    for res in result:
+                        res_list.append({ 'target' : '[' + str(res['comp_id']) + ']'
+                                          + str(res['metric']),
+                                          'datapoints' : res['datapoints']})
+                else:
+                    log.write(result)
+                    res_list = [{ 'target' : '[comp_id not found]:' + str(metricNames),
+                                          'datapoints' : [] }]
             else:
-                res_list = [{ 'target' : '[???]:' + str(metricNames),
-                                      'datapoints' : [] }]
-        else:
-            res_list = [ { "target" : "error",
-                           "datapoints" : "unrecognized format {0}".format(fmt) } ]
+                res_list = [ { "target" : "error",
+                               "datapoints" : "unrecognized format {0}".format(fmt) } ]
         res_list = json.dumps(res_list)
         return HttpResponse(res_list, content_type='application/json')
     except Exception as e:

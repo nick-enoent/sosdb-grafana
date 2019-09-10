@@ -10,14 +10,13 @@ from sosdb.DataSet import DataSet
 import views
 import time
 import numpy as np
+import pandas as pd
 
 log = logging.MsgLog("Grafana SOS")
 
-job_state_str = {
-    1 : "starting",
-    2 : "running",
-    3 : "stopping",
-    4 : "completed"
+job_status_str = {
+    1 : "running",
+    2 : "complete"
 }
 
 papi_metrics = [ 
@@ -105,7 +104,7 @@ class Search(object):
         schema = cont.schema_by_name(schema_name)
         attr = schema.attr_by_name("component_id")
         if attr is None:
-            return {}
+            return {0}
         src = SosDataSource()
         src.config(cont=cont)
         where = []
@@ -120,7 +119,7 @@ class Search(object):
         )
         comps = src.get_results()
         if comps is None:
-            return {}
+            return {0}
         comp_ids = np.unique(comps['component_id'])
         result = {}
         for comp_id in comp_ids:
@@ -146,7 +145,7 @@ class Search(object):
         )
         jobs = src.get_results()
         if jobs is None:
-            return {}
+            return {0:0}
         job_ids = np.unique(jobs['job_id'])
         result = {}
         for job_id in job_ids:
@@ -183,7 +182,7 @@ class Query(object):
         src.select([ self.schemaName+'.*' ],
                   from_    = [ self.schemaName ],
                   where    = [ [ 'job_id', Sos.COND_EQ, job_id ],
-                               [ 'job_state', Sos.COND_EQ, 2 ]
+                               [ 'job_status', Sos.COND_EQ, 2 ]
                              ],
                   order_by = 'job_comp_time')
         res = src.get_results()
@@ -272,49 +271,74 @@ class Query(object):
         if compIds:
             if type(compIds) != list:
                 compIds = [ int(compIds) ]
+        elif jobId != 0:
+            src.select([ 'component_id'],
+                from_ = [ self.schemaName ],
+                where = [ [ 'job_id', Sos.COND_EQ, jobId ] ],
+                order_by = 'component_id'
+            )
+            comps = src.get_results(limit=maxDataPoints)
+            comps = src.get_results(limit=maxDataPoints)
+            if not comps:
+                compIds = np.zeros(1)
+            else:
+                compIds = np.unique(comps['component_id'].tolist())
         else:
             src.select([ 'component_id' ],
-                       from_ = [ self.schemaName ],
-                       where = [
+                from_ = [ self.schemaName ],
+                where = [
                            [ 'timestamp', Sos.COND_GE, start ],
                            [ 'timestamp', Sos.COND_LE, end ],
                        ],
-                       order_by = 'timestamp'
+                       order_by = 'comp_time'
                    )
-            comps = src.get_results(limit=3600)
+            comps = src.get_results(limit=maxDataPoints)
             if not comps:
                 compIds = np.zeros(1)
             else:
                 compIds = np.unique(comps['component_id'].tolist())
         for comp_id in compIds:
             for metric in metricNames:
-                where_ = [
-                    [ 'component_id', Sos.COND_EQ, comp_id ],
-                    [ 'timestamp', Sos.COND_GE, start ],
-                    [ 'timestamp', Sos.COND_LE, end ]
-                ]
+                if comp_id != 0:
+                    where_ = [
+                        [ 'component_id', Sos.COND_EQ, comp_id ]
+                    ]
+                else:
+                    where_ = []
                 if jobId != 0:
+                    self.index = "job_comp_time"
                     where_.append([ 'job_id', Sos.COND_EQ, int(jobId) ])
                 else:
                     self.index = "comp_time"
+                    where_.append([ 'timestamp', Sos.COND_GE, start-120 ])
+                    where_.append([ 'timestamp', Sos.COND_LE, end+120 ])
                 src.select([ metric, 'timestamp' ],
                            from_ = [ self.schemaName ],
                            where = where_,
                            order_by = self.index
                        )
                 inp = None
-                if intervalMs < 10:
-                    res = src.get_results(inputer=inp, limit=maxDataPoints)
-                else:
-                    res = src.get_results(inputer=inp, limit=maxDataPoints, interval_ms=intervalMs)
-                    while len(res.array(metric)) < maxDataPoints:
-                        rs = src.get_results(inputer=inp,
-                                             limit=maxDataPoints,
-                                             interval_ms=intervalMs,
-                                             reset=False)
-                        if not len(rs.array(metric)):
-                            break
-                        res = res.concat(rs)
+                time_delta = end - start
+                res = src.get_results(inputer=inp, limit=maxDataPoints)
+                if res is None:
+                    continue
+                if len(res.array(metric)) >  maxDataPoints:
+                    if time_delta > maxDataPoints:
+                        time_delta=maxDataPoints
+                    series = pd.DataFrame(res.array(metric), index=res.array('timestamp'))
+                    rs = series.resample('S').mean()
+                    ts = rs.index
+                    i = 0
+                    tstamps = []
+                    while i < ts.size:
+                        ts = pd.Timestamp(ts[i])
+                        ts = np.int_(ts.timestamp()*1000)
+                        tstamps.append(ts)
+                        i += 1
+                    res = DataSet()
+                    res.append_array(len(rs.values.flatten()), metric, rs.values)
+                    res.append_array(len(tstamps), 'timestamp', tstamps)
+
                 if res is None:
                     return None
                 result.append({ "comp_id" : comp_id, "metric" : metric, "datapoints" :
@@ -328,22 +352,21 @@ class Query(object):
         where = [
             [ 'timestamp', Sos.COND_GE, start ],
             [ 'timestamp', Sos.COND_LE, end ],
-            #[ 'job_state', Sos.COND_EQ, 2 ],
             [ 'job_start', Sos.COND_GT, 1 ]
         ]
         if jobId != 0:
             where.insert(0, [ 'job_id', Sos.COND_EQ, jobId ])
 
-        src.select([ 'job_id','job_size', 'uid','job_start','job_end','job_state','task_exit_status' ],
+        src.select([ 'job_id','job_size', 'uid','job_start','job_end','job_status','task_exit_status' ],
                    from_ = [ self.schemaName ],
                    where = where,
-                   order_by = 'timestamp'
+                   order_by = 'comp_time'
         )
         x = Transform(src, None, limit=12384)
         res = x.begin()
         res = src.get_results()
-        if not res:
-            return res
+        #if not res:
+        #    return res
 
         result = x.dup()
         x.min([ 'job_start' ], group_name='job_id',
@@ -365,7 +388,7 @@ class Query(object):
                  { "text" : "Cache Dashboards" },
                  { "text" : "job_size" },
                  { "text" : "user_id" },
-                 { "text" : "job_state" },
+                 { "text" : "job_status" },
                  { "text" : "job_start" },
                  { "text" : "job_end" },
                  { "text" : "task_exit_status" }
@@ -381,7 +404,7 @@ class Query(object):
                 row.append('Cache Stats')
                 row.append(result.array('job_size')[i])
                 row.append(result.array('uid')[i])
-                row.append(job_state_str[result.array('job_state')[i]])
+                row.append(job_status_str[result.array('job_status')[i]])
                 row.append(result.array('job_start')[i])
                 if result.array('job_end')[i] != 0:
                     row.append(result.array('job_end')[i])

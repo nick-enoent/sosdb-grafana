@@ -112,8 +112,10 @@ export class SosDatasource {
 		index: this.templateSrv.replace(target.index),
 		job_id: this.templateSrv.replace(target.job_id),
 		comp_id: this.templateSrv.replace(target.comp_id),
-		query_type: this.templateSrv.replace(target.query_type),
+		query_type: this.templateSrv.replace(target.query_type) || 'metrics',
 		format: this.templateSrv.replace(target.format),
+                analysis: this.templateSrv.replace(target.analysis),
+                extra_params: this.templateSrv.replace(target.extra_params),
 		refId: target.refId,
 		hide: target.hide,
 		type: target.type || 'timeserie'

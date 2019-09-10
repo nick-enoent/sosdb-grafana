@@ -158,8 +158,10 @@ System.register(["lodash"], function (_export, _context) {
 								index: _this.templateSrv.replace(target.index),
 								job_id: _this.templateSrv.replace(target.job_id),
 								comp_id: _this.templateSrv.replace(target.comp_id),
-								query_type: _this.templateSrv.replace(target.query_type),
+								query_type: _this.templateSrv.replace(target.query_type) || 'metrics',
 								format: _this.templateSrv.replace(target.format),
+								analysis: _this.templateSrv.replace(target.analysis),
+								extra_params: _this.templateSrv.replace(target.extra_params),
 								refId: target.refId,
 								hide: target.hide,
 								type: target.type || 'timeserie'

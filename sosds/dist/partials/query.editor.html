@@ -1,4 +1,4 @@
-<query-editor-row query-ctrl="ctrl" class="sos-datasource-query-row" has-text-edit-mode="true">
+<query-editor-row query-ctrl="ctrl" can-collapse="true" class="sos-datasource-query-row" has-text-edit-mode="true">
   <div class="gf-form-inline">
 
     <div class="gf-form max-width-20">
@@ -7,7 +7,7 @@
       </label>
         <div class="gf-form-select-wrapper">
           <select ng-model="ctrl.target.format" class="gf-form-input" placeholder="format"
-    	          ng-options="qt as qt for qt in ['time_series', 'table', 'job_table','papi_rank_table','papi_job_summary','like_jobs','papi_timeseries']"
+    	          ng-options="qt as qt for qt in [ 'time_series', 'table' ]"
                   data-min-length=0 data-items=100
                   ng-blur="ctrl.onChangeInternal()">
           </select>
@@ -50,7 +50,7 @@
       <input type="text" class="gf-form-input" spellcheck='false' ng-model='ctrl.target.job_id'
                                                placeholder="job id"
                                                data-min-length=0 data-items=100
-                                               ng-blure="ctrl.onChangeInternal()">
+                                               ng-blur="ctrl.onChangeInternal()">
       </input>
     </div>
     <div class="gf-form max-width-20">
@@ -60,19 +60,8 @@
       <input type="text" class="gf-form-input" spellcheck='false' ng-model='ctrl.target.comp_id'
                                                placeholder="component id"
                                                data-min-length=0 data-items=100
-                                               ng-blure="ctrl.onChangeInternal()">
+                                               ng-blur="ctrl.onChangeInternal()">
       </input>
-    </div>
-  </div>
-  <div class="gf-form-inline">
-    <div class="gf-form max-width-20">
-      <label class="gf-form-label query-keyword width-8">Query Type</label>
-        <div class="gf-form-select-wrapper">
-          <select ng-model="ctrl.target.query_type" class="gf-form-input"
-                  ng-options="qt as qt for qt in ['metrics', 'derivative', 'least_sq', 'bollinger', 'log']"
-                  ng-blur="ctrl.onChangeInternal()">
-          </select>
-        </div>
     </div>
     <div class="gf-form max-width-20">
       <label class="gf-form-label query-keyword width-8">
@@ -81,6 +70,36 @@
       <metric-segment-model get-options="ctrl.getMetrics()" property="ctrl.target.target"
                             on-change="ctrl.onChangeInternal()" css-class="tight-form-iterm-xxlarge">
       </metric-segment-model>
+    </div>
+  </div>
+  <div class="gf-form-inline">
+    <div class="gf-form max-width-20">
+      <label class="gf-form-label query-keyword width-8">Query Type</label>
+        <div class="gf-form-select-wrapper">
+          <select ng-model="ctrl.target.query_type" class="gf-form-input"
+                  ng-options="qt as qt for qt in ['metrics', 'analysis', 'papi_rank_table','papi_job_summary', 'job_table', 'like_jobs','papi_timeseries']"
+                  ng-blur="ctrl.onChangeInternal()">
+          </select>
+        </div>
+    </div>
+    <div class="gf-form max-width-20">
+      <label class="gf-form-label query-keyword width-8">Analysis</label>
+        <div class="gf-form-select-wrapper">
+          <select ng-model="ctrl.target.analysis" class="gf-form-input"
+                  ng-options="qt as qt for qt in [ 'mem_threshold', 'idle_mem_threshold', 'comp_min_mean_max' ]"
+                  ng-blur="ctrl.onChangeInternal()">
+          </select>
+        </div>
+    </div>
+    <div class="gf-form max-width-20">
+      <label class="gf-form-label query-keyword width-9">
+        Extra Parameters
+      </label>
+      <input type="text" class="gf-form-input" spellcheck="false" ng-model="ctrl.target.extra_params"
+                                               placeholder="extra parameters"
+                                               data-min-length=0 data-items=100
+                                               ng-blur="ctrl.onChangeInternal()">
+      </input>
     </div>
 
 <!-- end metric params -->
