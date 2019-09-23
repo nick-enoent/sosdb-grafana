@@ -10,6 +10,7 @@ import time
 import sys
 import models_sos
 import numpy as np
+from numsos import grafana
 
 try:
     import models_baler
@@ -130,10 +131,7 @@ def query(request):
             if 'metric' in scopedVars:
                 metric = scopedVars['metric']
                 metricNames = [ str(metric['text' ]) ]
-        if 'index' in target:
-            index = str(target['index'])
-        else:
-            index = 'job_comp_time'
+        index = 'job_comp_time'
         if 'job_id' in target:
             if target['job_id'] is not '' or None:
                 jobId = int(target['job_id'])
@@ -163,8 +161,6 @@ def query(request):
                 if 'extra_params' in target:
                     if "threshold" in target['extra_params']:
                         threshold = int(target['extra_params'].split('=')[1])
-                    else:
-                        threshold = 1
                 else:
                     threshold = 1
                 res = None
@@ -175,11 +171,11 @@ def query(request):
                                                int(startS), int(endS),
                                                interval,
                                                maxDataPoints, jobId)
-                #import numsos.rank_mem_by_job as rmj
-                if analysis == 'mem_threshold':
-                    if "summary" in target['extra_params']:
-                        res = model.rankMemByJob(start=startS,
-                                                 end=endS, summary=True, job_id=jobId)
+                elif analysis == 'mem_threshold':
+                    if 'extra_params' in target:
+                        if "summary" in target['extra_params']:
+                            res = model.rankMemByJob(start=startS,
+                                                     end=endS, summary=True, job_id=jobId)
                     elif threshold > 0:
                         res = model.rankMemByJob(start=startS, 
                                                  end=endS, threshold=abs(threshold))
@@ -194,9 +190,13 @@ def query(request):
                         res = model.rankMemByJob(start=startS, end=endS,
                                                  threshold=abs(threshold),
                                                  low_not_high=True, idle=True)
+                elif analysis == 'lustre_metadata':
+                    res = model.lustreMetaData(metricNames, startS, endS)
+                elif analysis == 'lustre_data':
+                    res = model.lustreData(metricNames, startS, endS)
                 if res is None:
                     res = [ {"columns" : [{"text": "No Data"}],
-                            "rows" : [], "type" : "table" } ]
+                            "rows" : [[]], "type" : "table" } ]
                 return HttpResponse(json.dumps(res), content_type='application/json')
             except Exception as e:
                 a, b, c = sys.exc_info()
@@ -218,21 +218,26 @@ def query(request):
             res_list = model.getMeanPapiRankTable(jobId, int(startS), int(endS))
         elif query_type == 'papi_timeseries':
             res_list = model.getPapiTimeseries(metricNames, jobId, int(startS),
-                                               int(endS), intervalMs, maxDataPoints, comp_id=compId)
+                                               int(endS), intervalMs, maxDataPoints,
+                                               comp_id=compId)
         elif query_type == 'like_jobs':
             res_list = model.papiGetLikeJobs(jobId, startS, endS)
         elif query_type == 'metrics':
             if fmt == 'table':
-                result = model.getTable(index,
-                                        metricNames,
-                                        start, end)
-                if not result:
-                    return [ {"columns" : [], "rows" : [], "type" : "table" } ]
+                result = None
                 columns = []
-                for ser in result.series:
-                    columns.append({ "text" : ser })
-                rows = result.tolist()
-                res_list = [ { "columns" : columns, "rows" : rows, "type": "table" } ]
+                f = grafana.DataSetFormatter()
+                if len(metricNames) == 1 and metricNames[0] == "job_id":
+                    model = models_sos.Search(cont)
+                    result = model.getJobs(cont, schemaName,
+                                            startS, endS)
+                else:
+                    result = model.getTable(index,
+                                            metricNames,
+                                            start, end)
+                if result is None:
+                    res_list = [ {"columns" : [], "rows" : [], "type" : "table" } ]
+                res_list =  f.fmt_table(result)
             elif fmt == 'time_series':
                 startS = startS - (intervalMs/1000)
                 endS = endS + (intervalMs/1000)
@@ -320,7 +325,14 @@ def search(request):
         elif query.lower() == "components":
             resp = model.getComponents(cont, schema, start, end)
         elif query.lower() == "jobs":
-            resp = model.getJobs(cont, schema, start, end)
+            job_ids = model.getJobs(cont, schema, start, end)
+            resp = {}
+            if job_ids is None:
+                resp["0"] = 0
+            else:
+                job_ids = np.unique(job_ids.array('job_id'))
+                for job_id in job_ids:
+                    resp[str(int(job_id))] = int(job_id)
 
         return HttpResponse(json.dumps(resp), content_type = 'application/json')
 

@@ -155,7 +155,6 @@ System.register(["lodash"], function (_export, _context) {
 								target: _this.templateSrv.replace(target.target),
 								container: _this.templateSrv.replace(target.container),
 								schema: _this.templateSrv.replace(target.schema),
-								index: _this.templateSrv.replace(target.index),
 								job_id: _this.templateSrv.replace(target.job_id),
 								comp_id: _this.templateSrv.replace(target.comp_id),
 								query_type: _this.templateSrv.replace(target.query_type) || 'metrics',

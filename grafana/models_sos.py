@@ -130,7 +130,7 @@ class Search(object):
         schema = cont.schema_by_name(schema_name)
         attr = schema.attr_by_name("job_id")
         if attr is None:
-            return {}
+            return None
         src = SosDataSource()
         src.config(cont=cont)
         where = []
@@ -141,20 +141,21 @@ class Search(object):
         src.select([ 'job_id' ],
                    from_    = [ schema_name ],
                    where    = where,
-                   order_by = 'timestamp'
+                   order_by = 'time_job_comp',
+                   unique = True
         )
         jobs = src.get_results()
         if jobs is None:
-            return {0:0}
-        job_ids = np.unique(jobs['job_id'])
-        result = {}
-        for job_id in job_ids:
-            if job_id != 0:
-                result[str(int(job_id))] = int(job_id)
-        return result
+            return None
+        #job_ids = np.unique(jobs['job_id'])
+        #result = {}
+        #for job_id in job_ids:
+        #    if job_id != 0:
+        #        result[str(int(job_id))] = int(job_id)
+        return jobs
 
 class Query(object):
-    def __init__(self, cont, schemaName, index='timestamp'):
+    def __init__(self, cont, schemaName, index='time_job_comp'):
         self.cont = cont
         self.schemaName = schemaName
         self.index = index
@@ -206,7 +207,7 @@ class Query(object):
                        [ timestamp, Sos.COND_GE, start ],
                        [ timestamp, Sos.COND_LE, end ]
                    ],
-                   order_by = 'timestamp'
+                   order_by = 'time_comp'
                )
         res = src.get_results(limit=4096)
         if res:
@@ -275,9 +276,8 @@ class Query(object):
             src.select([ 'component_id'],
                 from_ = [ self.schemaName ],
                 where = [ [ 'job_id', Sos.COND_EQ, jobId ] ],
-                order_by = 'component_id'
+                order_by = 'job_comp_time'
             )
-            comps = src.get_results(limit=maxDataPoints)
             comps = src.get_results(limit=maxDataPoints)
             if not comps:
                 compIds = np.zeros(1)
@@ -290,7 +290,7 @@ class Query(object):
                            [ 'timestamp', Sos.COND_GE, start ],
                            [ 'timestamp', Sos.COND_LE, end ],
                        ],
-                       order_by = 'comp_time'
+                       order_by = 'time_comp_job'
                    )
             comps = src.get_results(limit=maxDataPoints)
             if not comps:
@@ -309,7 +309,7 @@ class Query(object):
                     self.index = "job_comp_time"
                     where_.append([ 'job_id', Sos.COND_EQ, int(jobId) ])
                 else:
-                    self.index = "comp_time"
+                    self.index = "time_comp"
                     where_.append([ 'timestamp', Sos.COND_GE, start-120 ])
                     where_.append([ 'timestamp', Sos.COND_LE, end+120 ])
                 src.select([ metric, 'timestamp' ],
@@ -325,6 +325,7 @@ class Query(object):
                 if len(res.array(metric)) >  maxDataPoints:
                     if time_delta > maxDataPoints:
                         time_delta=maxDataPoints
+                    # set index of DATAFRAME to timestamp
                     series = pd.DataFrame(res.array(metric), index=res.array('timestamp'))
                     rs = series.resample('S').mean()
                     ts = rs.index
@@ -360,7 +361,7 @@ class Query(object):
         src.select([ 'job_id','job_size', 'uid','job_start','job_end','job_status','task_exit_status' ],
                    from_ = [ self.schemaName ],
                    where = where,
-                   order_by = 'comp_time'
+                   order_by = 'time_job_comp'
         )
         x = Transform(src, None, limit=12384)
         res = x.begin()
@@ -424,7 +425,7 @@ class Query(object):
                        where = [
                            [ 'start_time', Sos.COND_GE, start ],
                        ],
-                       order_by = 'job_id'
+                       order_by = 'time_job_comp'
             )
         else:
             src.select(metricNames,
@@ -433,7 +434,7 @@ class Query(object):
                            [ 'timestamp', Sos.COND_GE, start ],
                            [ 'timestamp', Sos.COND_LE, end ]
                        ],
-                       order_by = index
+                       order_by = "time_comp"
             )
         res = src.get_results()
         return res
@@ -487,7 +488,7 @@ class Query(object):
                         where = [
                             [ 'job_id', Sos.COND_EQ, job_id ]
                         ],
-                        order_by = 'job_id',
+                        order_by = 'job_comp_time',
             )
             res = src.get_results()
             if res is None:
@@ -711,7 +712,7 @@ class Annotations(object):
         """
         src = SosDataSource()
         src.config(cont=self.cont)
-
+        by = 'comp_time'
         if jobId != None:
             # ignore the start/end time for the job markers
             jobId = int(jobId)
@@ -723,13 +724,12 @@ class Annotations(object):
                 [ 'timestamp', Sos.COND_GE, start ],
                 [ 'timestamp', Sos.COND_LE, end ],
             ]
-            by = 'timestamp'
         else:
             where = [
                 [ 'timestamp', Sos.COND_GE, start ],
                 [ 'timestamp', Sos.COND_LE, end ],
             ]
-            by = 'timestamp'
+            by = 'time_job_comp'
 
         src.select([ 'job_id', 'job_start', 'job_end' ],
                        from_ = [ 'mt-slurm' ],

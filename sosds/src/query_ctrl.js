@@ -16,7 +16,6 @@ export class SosDatasourceQueryCtrl extends QueryCtrl {
         this.target.type = this.target.type || 'timeserie';
         this.target.container = this.target.container;
         this.target.schema = this.target.schema;
-        this.target.index = this.target.index || 'comp_time';
         this.target.job_id = this.target.job_id || 0;
         this.target.comp_id = this.target.comp_id || 0;
         this.target.query_type = this.target.query_type || 'metrics';
