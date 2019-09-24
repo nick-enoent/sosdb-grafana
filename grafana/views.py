@@ -191,9 +191,9 @@ def query(request):
                                                  threshold=abs(threshold),
                                                  low_not_high=True, idle=True)
                 elif analysis == 'lustre_metadata':
-                    res = model.lustreMetaData(metricNames, startS, endS)
+                    res = model.lustreMetaData(metricNames, startS, endS, threshold)
                 elif analysis == 'lustre_data':
-                    res = model.lustreData(metricNames, startS, endS)
+                    res = model.lustreData(metricNames, startS, endS, threshold)
                 if res is None:
                     res = [ {"columns" : [{"text": "No Data"}],
                             "rows" : [[]], "type" : "table" } ]
@@ -227,14 +227,9 @@ def query(request):
                 result = None
                 columns = []
                 f = grafana.DataSetFormatter()
-                if len(metricNames) == 1 and metricNames[0] == "job_id":
-                    model = models_sos.Search(cont)
-                    result = model.getJobs(cont, schemaName,
-                                            startS, endS)
-                else:
-                    result = model.getTable(index,
-                                            metricNames,
-                                            start, end)
+                result = model.getTable(index,
+                                        metricNames,
+                                        start, end)
                 if result is None:
                     res_list = [ {"columns" : [], "rows" : [], "type" : "table" } ]
                 res_list =  f.fmt_table(result)
