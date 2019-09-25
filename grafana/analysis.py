@@ -22,6 +22,8 @@ class Analysis(Query):
                        interval,
                        maxDataPoints,
                        jobId):
+        if jobId == 0:
+            return [{ 'target' : 'Error: Please specify valid job_id', "datapoints" : [] }]
         src = SosDataSource()
         src.config(cont=self.cont)
         metric = metric[0]

@@ -211,15 +211,14 @@ def query(request):
             except Exception as e:
                 a, b, c = sys.exc_info()
                 log.write(str(e)+' '+str(c.tb_lineno))
-                raise Http404("oh shit")
+                res_list = [ { "columns" : [], "rows" : [], "type": "table" } ]
         elif query_type == 'papi_job_summary':
             res_list = model.getPapiSumTable(jobId, int(startS), int(endS))
         elif query_type == 'papi_rank_table':
             res_list = model.getMeanPapiRankTable(jobId, int(startS), int(endS))
         elif query_type == 'papi_timeseries':
             res_list = model.getPapiTimeseries(metricNames, jobId, int(startS),
-                                               int(endS), intervalMs, maxDataPoints,
-                                               comp_id=compId)
+                                               int(endS), intervalMs, maxDataPoints)
         elif query_type == 'like_jobs':
             res_list = model.papiGetLikeJobs(jobId, startS, endS)
         elif query_type == 'metrics':
@@ -320,14 +319,7 @@ def search(request):
         elif query.lower() == "components":
             resp = model.getComponents(cont, schema, start, end)
         elif query.lower() == "jobs":
-            job_ids = model.getJobs(cont, schema, start, end)
-            resp = {}
-            if job_ids is None:
-                resp["0"] = 0
-            else:
-                job_ids = np.unique(job_ids.array('job_id'))
-                for job_id in job_ids:
-                    resp[str(int(job_id))] = int(job_id)
+            resp = model.getJobs(cont, schema, start, end)
 
         return HttpResponse(json.dumps(resp), content_type = 'application/json')
 

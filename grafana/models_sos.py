@@ -127,6 +127,7 @@ class Search(object):
         return result
 
     def getJobs(self, cont, schema_name, start, end):
+        # method to retrieve unique job_ids
         schema = cont.schema_by_name(schema_name)
         attr = schema.attr_by_name("job_id")
         if attr is None:
@@ -135,24 +136,21 @@ class Search(object):
         src.config(cont=cont)
         where = []
         if start > 0:
-            where.append([ 'timestamp', Sos.COND_GE, start ])
-        if end > 0:
-            where.append([ 'timestamp', Sos.COND_LE, end ])
+            where.append([ 'timestamp', Sos.COND_GT, start ])
         src.select([ 'job_id' ],
                    from_    = [ schema_name ],
                    where    = where,
-                   order_by = 'time_job_comp',
-                   unique = True
+                   order_by = 'comp_job_time'
         )
         jobs = src.get_results()
         if jobs is None:
-            return None
-        #job_ids = np.unique(jobs['job_id'])
-        #result = {}
-        #for job_id in job_ids:
-        #    if job_id != 0:
-        #        result[str(int(job_id))] = int(job_id)
-        return jobs
+            return {0}
+        job_ids = np.unique(jobs['job_id'])
+        result = {}
+        for job_id in job_ids:
+            if job_id != 0:
+                result[str(int(job_id))] = int(job_id)
+        return result
 
 class Query(object):
     def __init__(self, cont, schemaName, index='time_job_comp'):
@@ -216,7 +214,7 @@ class Query(object):
         return None
 
     def getPapiTimeseries(self, metricNames, job_id,
-                          start, end, intervalMs, maxDataPoints, comp_id=None):
+                          start, end, intervalMs, maxDataPoints):
         """Return time series data for papi-events schema"""
         self.maxDataPoints = maxDataPoints
         src = SosDataSource()
@@ -242,6 +240,7 @@ class Query(object):
             for metric in metricNames:
                 if metric in event_name_map:
                     metric = event_name_map[metric]
+                log.write(metric)
                 datapoints = []
                 i = 0
                 while i < len(job.array(metric)):
@@ -310,8 +309,8 @@ class Query(object):
                     where_.append([ 'job_id', Sos.COND_EQ, int(jobId) ])
                 else:
                     self.index = "time_comp"
-                    where_.append([ 'timestamp', Sos.COND_GE, start-120 ])
-                    where_.append([ 'timestamp', Sos.COND_LE, end+120 ])
+                    where_.append([ 'timestamp', Sos.COND_GE, start ])
+                    where_.append([ 'timestamp', Sos.COND_LE, end ])
                 src.select([ metric, 'timestamp' ],
                            from_ = [ self.schemaName ],
                            where = where_,
@@ -361,7 +360,7 @@ class Query(object):
         src.select([ 'job_id','job_size', 'uid','job_start','job_end','job_status','task_exit_status' ],
                    from_ = [ self.schemaName ],
                    where = where,
-                   order_by = 'time_job_comp'
+                   order_by = 'job_rank_time'
         )
         x = Transform(src, None, limit=12384)
         res = x.begin()
@@ -565,17 +564,17 @@ class Query(object):
             src = SosDataSource()
             src.config(cont=self.cont)
             src.select(
-                [ 'PAPI_TOT_INS.timestamp',
-                  'PAPI_TOT_INS.component_id',
-                  'PAPI_TOT_INS.job_id',
-                  'PAPI_TOT_INS.rank' ] + event_name_map.keys(),
+                [ 'PAPI_TOT_INS[timestamp]',
+                  'PAPI_TOT_INS[component_id]',
+                  'PAPI_TOT_INS[job_id]',
+                  'PAPI_TOT_INS[rank]' ] + event_name_map.keys(),
                        from_    = event_name_map.keys(),
                        where    = [ [ 'job_id', Sos.COND_EQ, int(job_id) ]
                                 ],
                        order_by = 'job_rank_time')
 
-            xfrm = Transform(src, None, limit=8192)
-            res = xfrm.begin(count=8192)
+            xfrm = Transform(src, None)
+            res = xfrm.begin()
             if res is None:
                 # Job was too short to record data
                 log.write('getPapiDerivedMetrics: no data for job_id {0}'.format(job_id))
@@ -717,7 +716,7 @@ class Annotations(object):
             # ignore the start/end time for the job markers
             jobId = int(jobId)
             where = [ [ 'job_id', Sos.COND_EQ, jobId ] ]
-            by = 'job_comp_time'
+            by = 'job_rank_time'
         elif compId != None:
             where = [
                 [ 'component_id', Sos.COND_EQ, compId ],
@@ -729,7 +728,7 @@ class Annotations(object):
                 [ 'timestamp', Sos.COND_GE, start ],
                 [ 'timestamp', Sos.COND_LE, end ],
             ]
-            by = 'time_job_comp'
+            by = 'time_job'
 
         src.select([ 'job_id', 'job_start', 'job_end' ],
                        from_ = [ 'mt-slurm' ],
