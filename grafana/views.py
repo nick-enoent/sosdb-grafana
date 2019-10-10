@@ -161,39 +161,38 @@ def query(request):
                 if 'extra_params' in target:
                     if "threshold" in target['extra_params']:
                         threshold = int(target['extra_params'].split('=')[1])
-                else:
-                    threshold = 1
-                res = None
-                import analysis as gf_analysis
-                model = gf_analysis.Analysis(cont, schemaName, index)
+                    else:
+                        threshold = 1
                 if analysis == 'comp_min_mean_max':
-                    res = model.compMinMeanMax(metricNames,
-                                               int(startS), int(endS),
-                                               interval,
-                                               maxDataPoints, jobId)
+                    from graf_analysis.compMinMeanMax import compMinMeanMax
+                    model = compMinMeanMax(cont, int(startS), int(endS),
+                                           schema=schemaName, maxDataPoints=maxDataPoints)
+                    res = model.minMeanMax(metricNames, jobId)
                 elif analysis == 'mem_threshold':
+                    from graf_analysis.rankMemByJob import rankMemByJob
+                    model = rankMemByJob(cont, startS, endS)
                     if 'extra_params' in target:
                         if "summary" in target['extra_params']:
-                            res = model.rankMemByJob(start=startS,
-                                                     end=endS, summary=True, job_id=jobId)
-                    elif threshold > 0:
-                        res = model.rankMemByJob(start=startS, 
-                                                 end=endS, threshold=abs(threshold))
-                    else:
-                        res = model.rankMemByJob(start=startS, end=endS,
-                                                 threshold=abs(threshold), low_not_high=True)
-                elif analysis == 'idle_mem_threshold':
+                            res = model.job_summary(jobId)
                     if threshold > 0:
-                        res = model.rankMemByJob(start=startS, end=endS,
-                                                 threshold=abs(threshold), idle=True)
+                        res = model.get_high_mem(threshold)
                     else:
-                        res = model.rankMemByJob(start=startS, end=endS,
-                                                 threshold=abs(threshold),
-                                                 low_not_high=True, idle=True)
+                        res = model.get_low_mem(abs(threshold))
+                elif analysis == 'idle_mem_threshold':
+                    from graf_analysis.rankMemByJob import rankMemByJob
+                    model = rankMemByJob(cont, startS, endS)
+                    if threshold > 0:
+                        res = model.get_idle_high_mem(threshold)
+                    else:
+                        res = model.get_idle_low_mem(abs(threshold))
                 elif analysis == 'lustre_metadata':
-                    res = model.lustreMetaData(metricNames, startS, endS, threshold)
+                    from graf_analysis.lustreData import lustreData
+                    model = lustreData(cont, startS, endS)
+                    res = model.get_lustre_avg(metricNames, threshold, meta=True)
                 elif analysis == 'lustre_data':
-                    res = model.lustreData(metricNames, startS, endS, threshold)
+                    from graf_analysis.lustreData import lustreData
+                    model = lustreData(cont, startS, endS)
+                    res  = model.get_lustre_avg(metricNames, threshold)
                 if res is None:
                     res = [ {"columns" : [{"text": "No Data"}],
                             "rows" : [[]], "type" : "table" } ]
@@ -246,7 +245,6 @@ def query(request):
                                           + str(res['metric']),
                                           'datapoints' : res['datapoints']})
                 else:
-                    log.write(result)
                     res_list = [{ 'target' : '[comp_id not found]:' + str(metricNames),
                                           'datapoints' : [] }]
             else:

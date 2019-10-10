@@ -134,22 +134,24 @@ class Search(object):
             return None
         src = SosDataSource()
         src.config(cont=cont)
-        where = []
-        if start > 0:
-            where.append([ 'timestamp', Sos.COND_GT, start ])
+        where_ = []
+        where_.append(['job_id', Sos.COND_GT, 1])
+        where_.append([ 'timestamp', Sos.COND_GT, start ])
+        if end > 0:
+            where_.append([ 'timestamp', Sos.COND_LE, end ])
         src.select([ 'job_id' ],
                    from_    = [ schema_name ],
-                   where    = where,
-                   order_by = 'comp_job_time'
+                   where    = where_,
+                   order_by = 'time_job_comp'
         )
-        jobs = src.get_results()
+        jobs = src.get_results(limit=8128)
         if jobs is None:
             return {0}
         job_ids = np.unique(jobs['job_id'])
+        job_ids = jobs.array('job_id')
         result = {}
         for job_id in job_ids:
-            if job_id != 0:
-                result[str(int(job_id))] = int(job_id)
+            result[str(int(job_id))] = int(job_id)
         return result
 
 class Query(object):
@@ -240,7 +242,6 @@ class Query(object):
             for metric in metricNames:
                 if metric in event_name_map:
                     metric = event_name_map[metric]
-                log.write(metric)
                 datapoints = []
                 i = 0
                 while i < len(job.array(metric)):

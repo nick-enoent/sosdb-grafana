@@ -6,9 +6,7 @@ endif
 grafana_PYTHON = __init__.py \
 	urls.py	\
 	models_sos.py \
-        views.py \
-        analysis.py \
-	fmt_grafana.py
+        views.py
 if BALER
 grafana_PYTHON += models_baler.py 
 else
