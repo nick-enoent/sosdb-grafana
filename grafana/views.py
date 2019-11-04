@@ -10,6 +10,7 @@ import time
 import sys
 import models_sos
 import numpy as np
+import importlib
 from numsos import grafana
 
 try:
@@ -156,52 +157,27 @@ def query(request):
             try:
                 if 'analysis' in target:
                     analysis = target['analysis']
-                else:
-                    return None
-                if 'extra_params' in target:
-                    if "threshold" in target['extra_params']:
-                        threshold = int(target['extra_params'].split('=')[1])
-                    else:
-                        threshold = 1
-                if analysis == 'comp_min_mean_max':
-                    from graf_analysis.compMinMeanMax import compMinMeanMax
-                    model = compMinMeanMax(cont, int(startS), int(endS),
-                                           schema=schemaName, maxDataPoints=maxDataPoints)
-                    res = model.minMeanMax(metricNames, jobId)
-                elif analysis == 'mem_threshold':
-                    from graf_analysis.rankMemByJob import rankMemByJob
-                    model = rankMemByJob(cont, startS, endS)
                     if 'extra_params' in target:
-                        if "summary" in target['extra_params']:
-                            res = model.job_summary(jobId)
-                    if threshold > 0:
-                        res = model.get_high_mem(threshold)
+                        params = target['extra_params']
                     else:
-                        res = model.get_low_mem(abs(threshold))
-                elif analysis == 'idle_mem_threshold':
-                    from graf_analysis.rankMemByJob import rankMemByJob
-                    model = rankMemByJob(cont, startS, endS)
-                    if threshold > 0:
-                        res = model.get_idle_high_mem(threshold)
-                    else:
-                        res = model.get_idle_low_mem(abs(threshold))
-                elif analysis == 'lustre_metadata':
-                    from graf_analysis.lustreData import lustreData
-                    model = lustreData(cont, startS, endS)
-                    res = model.get_lustre_avg(metricNames, threshold, meta=True)
-                elif analysis == 'lustre_data':
-                    from graf_analysis.lustreData import lustreData
-                    model = lustreData(cont, startS, endS)
-                    res  = model.get_lustre_avg(metricNames, threshold)
+                        params = None
+                    analysis = target['analysis']
+                    module = importlib.import_module('graf_analysis.'+analysis)
+                    class_ = getattr(module, analysis)
+                    model = class_(cont, int(startS), int(endS),
+                                   schema=schemaName, maxDataPoints=maxDataPoints)
+                    res = model.get_data(metricNames, jobId, params)
+                else:
+                    res = None
                 if res is None:
-                    res = [ {"columns" : [{"text": "No Data"}],
-                            "rows" : [[]], "type" : "table" } ]
+                    res_list = [ {"columns" : [], "rows" : [], "type" : "table" } ]
                 return HttpResponse(json.dumps(res), content_type='application/json')
             except Exception as e:
                 a, b, c = sys.exc_info()
                 log.write(str(e)+' '+str(c.tb_lineno))
                 return HttpResponse(json.dumps([ {"columns" : [{ "text" : str(e) }],
-                                    "rows" : [[]], "type" : "table" } ]), content_type='application/json')
+                                    "rows" : [[]], "type" : "table" } ]),
+                                    content_type='application/json')
         model = models_sos.Query(cont, schemaName, index)
         if query_type == 'job_table':
             try:
@@ -245,7 +221,7 @@ def query(request):
                                           + str(res['metric']),
                                           'datapoints' : res['datapoints']})
                 else:
-                    res_list = [{ 'target' : '[comp_id not found]:' + str(metricNames),
+                    res_list = [{ 'target' : str(metricNames),
                                           'datapoints' : [] }]
             else:
                 res_list = [ { "target" : "error",

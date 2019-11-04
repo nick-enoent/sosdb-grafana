@@ -69,19 +69,19 @@
       <label class="gf-form-label query-keyword width-8">Query Type</label>
         <div class="gf-form-select-wrapper">
           <select ng-model="ctrl.target.query_type" class="gf-form-input"
-                  ng-options="qt as qt for qt in ['metrics', 'analysis', 'papi_rank_table','papi_job_summary', 'job_table', 'like_jobs','papi_timeseries']"
+                  ng-options="qt as qt for qt in ['metrics', 'analysis', 'papi_rank_table','papi_job_summary', 'like_jobs','papi_timeseries']"
                   ng-blur="ctrl.onChangeInternal()">
           </select>
         </div>
     </div>
     <div class="gf-form max-width-20">
       <label class="gf-form-label query-keyword width-8">Analysis</label>
-        <div class="gf-form-select-wrapper">
-          <select ng-model="ctrl.target.analysis" class="gf-form-input"
-                  ng-options="qt as qt for qt in [ 'mem_threshold', 'idle_mem_threshold', 'comp_min_mean_max', 'lustre_metadata','lustre_data' ]"
-                  ng-blur="ctrl.onChangeInternal()">
-          </select>
-        </div>
+      <input type="text" class="gf-form-input" spellcheck="false" ng-model="ctrl.target.analysis"
+                                               placeholder="extra parameters"
+                                               data-min-length=0 data-items=100
+                                               ng-blur="ctrl.onChangeInternal()">
+      </input>
+
     </div>
     <div class="gf-form max-width-20">
       <label class="gf-form-label query-keyword width-9">

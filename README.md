@@ -23,6 +23,74 @@ Implements the following urls:
  * `/annotations` is not currently supported by sos_web_svcs.
 
 ### Query API
+Format
+	- table or time_series
+	- some Query Types will only return table or time_series
+Container
+	- name of container to query from
+Schema
+	- schema to query from
+Job ID
+	- job_id to query data from
+	- may be left blank or 0
+Comp ID
+	- component_id to query data from
+Metric
+	- a metric from the specified schema to query for
+Query Type:
+	metrics
+		- returns metric datapoints over time
+	analysis
+		- informs back end to look for "analysis" parameter
+		- input name of numsos analysis module in "Analysis" parameter to use
+	papi_rank_table
+		- displays rank information for a given job
+		- requires job_id
+	papi_job_summary
+		 - displays job summary info for a given PAPI job
+		- requires job_id
+	job_table
+		- returns list of recent jobs and relevant info
+	like_jobs
+		- returns jobs related to job_id provided. requires kokkos_app schema
+		- requires job_id
+	papi_timeseries
+		- returns time_series data for papi metrics
+	
+Analysis:
+	- text input by user
+	- user defined python analytics module. pre-packaged modules currently include:
+	rankMemByJob
+		- gets the high or low memory thresholds across jobs in a given time range
+		Extra Parameters:
+			- threshold=<threshold>
+				-> set to a positive integer to get top N jobs with memory usage
+				-> set to a negative integer to get bottom N jobs with memory usage
+			- summary
+				-> specifying summary will return a summary across jobs in time
+				   range
+				-> returns standard deviation -2 > x > 2, as well as high and
+				   low job
+			- Inlcude "idle" parameter before "threshold", e.g. "idle&threshold=10"
+				- gets the high or low memory thresholds across components
+				  not running jobs
+	compMinMeanMax
+		- returns the min, mean, and max datapoints for a job's particular metric across components
+		- only one metric may be specified
+	lustreData
+		- returns sum of metrics provided per second ( Bytes per second )
+		Extra Parameters:
+			- threshold=<threshold>
+				
+			- meta
+				- must be included before "threshold" in query parameters e.g.
+					"meta&threshold=10"
+				- returns sum of metrics provided per second
+				  ( Inputs/Outputs per second )
+				
+Extra Parameters: Extra arguments used when analysis other than metric is selected
+
+
 
 Example response
 ``` javascript
@@ -53,7 +121,7 @@ Access-Control-Allow-Origin:*
 ### Search API
 These template variables can be defined in the dashboard settings under "variables".
 Example request
-        The first parameter in teh target is the desired data
+        The first parameter in the target is the desired data
                 SCHEMA:
                         Syntax: query=schema&container=<cont_name>
                 INDEX:
