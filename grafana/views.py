@@ -1,6 +1,7 @@
 from django.contrib.auth import authenticate, login
 from django.shortcuts import render
 from django.http import HttpResponse, Http404, HttpResponseRedirect, QueryDict
+from graf_analysis.grafanaFormatter import DataSetFormatter
 from sosgui import logging, settings
 from sosdb import Sos
 import traceback as tb
@@ -20,15 +21,15 @@ except:
 import json
 
 log = logging.MsgLog("Grafana Views ")
-containers = {}
 
 def get_container(cont_name):
-    if cont_name in containers:
-        return containers[cont_name]
     path = settings.SOS_ROOT + '/' + cont_name
     cont = Sos.Container(path)
-    containers[cont_name] = cont
     return cont
+
+def close_container(cont):
+    cont.close()
+    del cont
 
 def parse_referer_date(s):
     if s == "now":
@@ -167,10 +168,13 @@ def query(request):
                     model = class_(cont, int(startS), int(endS),
                                    schema=schemaName, maxDataPoints=maxDataPoints)
                     res = model.get_data(metricNames, jobId, params)
+                    fmt = DataSetFormatter(res, fmt)
+                    res = fmt.ret_json()
                 else:
                     res = None
                 if res is None:
-                    res_list = [ {"columns" : [], "rows" : [], "type" : "table" } ]
+                    res = [ {"columns" : [], "rows" : [], "type" : "table" } ]
+                close_container(cont)
                 return HttpResponse(json.dumps(res), content_type='application/json')
             except Exception as e:
                 a, b, c = sys.exc_info()
@@ -227,6 +231,7 @@ def query(request):
                 res_list = [ { "target" : "error",
                                "datapoints" : "unrecognized format {0}".format(fmt) } ]
         res_list = json.dumps(res_list)
+        close_container(cont)
         return HttpResponse(res_list, content_type='application/json')
     except Exception as e:
         log.write(tb.format_exc())
@@ -295,6 +300,7 @@ def search(request):
         elif query.lower() == "jobs":
             resp = model.getJobs(cont, schema, start, end)
 
+        close_container(cont)
         return HttpResponse(json.dumps(resp), content_type = 'application/json')
 
     except Exception as e:
@@ -378,6 +384,7 @@ def annotations(request):
             annotes = models_baler.MsgAnnotations(cont, start, end, int(compId), ptnId, annotation)
         else:
             raise ValueError("Unrecognized annotation type '{0}'.".format(note_type))
+        close_container(cont)
         return HttpResponse(json.dumps(annotes), content_type='application/json')
 
     except Exception as e:
