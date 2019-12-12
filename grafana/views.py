@@ -12,7 +12,6 @@ import sys
 import models_sos
 import numpy as np
 import importlib
-from numsos import grafana
 
 try:
     import models_baler
@@ -204,13 +203,13 @@ def query(request):
             if fmt == 'table':
                 result = None
                 columns = []
-                f = grafana.DataSetFormatter()
+                f = DataSetFormatter(result, fmt)
                 result = model.getTable(index,
                                         metricNames,
                                         start, end)
                 if result is None:
                     res_list = [ {"columns" : [], "rows" : [], "type" : "table" } ]
-                res_list =  f.fmt_table(result)
+                res_list =  f.ret_json()
             elif fmt == 'time_series':
                 startS = startS - (intervalMs/1000)
                 endS = endS + (intervalMs/1000)
