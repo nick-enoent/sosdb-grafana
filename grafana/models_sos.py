@@ -1,18 +1,23 @@
+from __future__ import division
+from __future__ import absolute_import
+from builtins import str
+from builtins import object
 from django.db import models
 import datetime as dt
 import time
 import os, sys, traceback
 from sosdb import Sos
-from sosgui import settings, logging
+from sosgui import settings, _log
 from numsos.DataSource import SosDataSource
+from graf_analysis.grafanaAnalysis import papiAnalysis
+from . import views
 from numsos.Transform import Transform
 from sosdb.DataSet import DataSet
-import views
 import time
 import numpy as np
 import pandas as pd
 
-log = logging.MsgLog("Grafana SOS")
+log = _log.MsgLog("Grafana SOS")
 
 job_status_str = {
     1 : "running",
@@ -218,30 +223,32 @@ class Query(object):
     def getPapiTimeseries(self, metricNames, job_id,
                           start, end, intervalMs, maxDataPoints):
         """Return time series data for papi-events schema"""
+        papi_analysis = papiAnalysis(self.cont, start, end)
         self.maxDataPoints = maxDataPoints
-        src = SosDataSource()
-        src.config(cont=self.cont)
+        #src = SosDataSource()
+        #src.config(cont=self.cont)
         result = []
         if self.schemaName == 'kokkos_app':
             for metric in metricNames:
-                src.select([metric, 'start_time'],
+                papi_analysis.src.select([metric, 'start_time'],
                     from_ = [ self.schemaName ],
                     where = [
                         [ 'start_time', Sos.COND_GE, start ]
                     ],
                     order_by = 'job_id'
                 )
-                res = src.get_results()
+                res = papi_analysis.src.get_results()
                 l = res.series_size
                 result.append({"target" : metric, "datapoints" : res.tolist() })
             return result
         try:
             if not job_id:
                 return [{ "target" : "Job Id required for papi_timeseries", datapoints : [] } ]
-            xfrm, job = self.getPapiDerivedMetrics(job_id, time_series=True, start=start, end=end)
+            xfrm, job = papi_analysis.derived_metrics(job_id)
+            #xfrm, job = self.getPapiDerivedMetrics(job_id, time_series=True, start=start, end=end)
             for metric in metricNames:
-                if metric in event_name_map:
-                    metric = event_name_map[metric]
+                if metric in papi_analysis.event_name_map:
+                    metric = papi_analysis.event_name_map[metric]
                 datapoints = []
                 i = 0
                 while i < len(job.array(metric)):
@@ -251,7 +258,7 @@ class Query(object):
                                            "datapoints" : datapoints })
                             datapoints = []
                     nda = np.array(job.array('timestamp'), dtype='double')
-                    dp = [ job.array(metric)[i], nda[i]/1000 ]
+                    dp = [ np.nan_to_num(job.array(metric)[i]), nda[i] // 1000 ]
                     datapoints.append(dp)
                     i += 1
                 result.append({"target" : '[Rank'+str(job.array('rank')[i-1])+']'+metric,
@@ -259,7 +266,8 @@ class Query(object):
             return result
         except Exception as e:
             a, b, c = sys.exc_info()
-            log.write('papi_timeseries '+str(e)+' '+str(c.tb_lineno))
+            print('papi_timeseries '+str(e)+' '+str(c.tb_lineno))
+            #log.write('papi_timeseries '+str(e)+' '+str(c.tb_lineno))
             return None
 
     def getCompTimeseries(self, compIds, metricNames,
@@ -346,76 +354,6 @@ class Query(object):
                                 res.tolist() })
         return result
 
-    def getJobTable(self, jobId, start, end):
-        """Return a table of jobs run in the specified time interval"""
-        src = SosDataSource()
-        src.config(cont=self.cont)
-        where = [
-            [ 'timestamp', Sos.COND_GE, start ],
-            [ 'timestamp', Sos.COND_LE, end ],
-            [ 'job_start', Sos.COND_GT, 1 ]
-        ]
-        if jobId != 0:
-            where.insert(0, [ 'job_id', Sos.COND_EQ, jobId ])
-
-        src.select([ 'job_id','job_size', 'uid','job_start','job_end','job_status','task_exit_status' ],
-                   from_ = [ self.schemaName ],
-                   where = where,
-                   order_by = 'job_rank_time'
-        )
-        x = Transform(src, None, limit=12384)
-        res = x.begin()
-        res = src.get_results()
-        #if not res:
-        #    return res
-
-        result = x.dup()
-        x.min([ 'job_start' ], group_name='job_id',
-              keep=[ 'job_id', 'job_size', 'uid' ],
-              xfrm_suffix='')
-        result.concat(x.pop())
-        x.max([ 'job_end' ], group_name='job_id', xfrm_suffix='')
-        result.concat(x.pop())
-        nda = result.array('job_start')
-        nda *= 1000
-        nda1 = result.array('job_end')
-        nda1 *= 1000
-        i = 0
-        rows = []
-        cols = []
-        jids = []
-        cols = [ { "text" : "job_id" },
-                 { "text" : "CPU Dashboards" },
-                 { "text" : "Cache Dashboards" },
-                 { "text" : "job_size" },
-                 { "text" : "user_id" },
-                 { "text" : "job_status" },
-                 { "text" : "job_start" },
-                 { "text" : "job_end" },
-                 { "text" : "task_exit_status" }
-               ]
-        while i < result.get_series_size() - 1:
-            row = []
-            if result.array('job_id')[i] in jids:
-                pass
-            else:
-                jids.append(result.array('job_id')[i])
-                row.append(result.array('job_id')[i])
-                row.append('CPU Stats')
-                row.append('Cache Stats')
-                row.append(result.array('job_size')[i])
-                row.append(result.array('uid')[i])
-                row.append(job_status_str[result.array('job_status')[i]])
-                row.append(result.array('job_start')[i])
-                if result.array('job_end')[i] != 0:
-                    row.append(result.array('job_end')[i])
-                else:
-                    row.append(time.time()*1000)
-                row.append(result.array('task_exit_status')[i])
-                rows.append(row)
-            i += 1
-        return cols, rows
-
     def getTable(self, index, metricNames, start, end):
         src = SosDataSource()
         src.config(cont=self.cont)
@@ -438,45 +376,6 @@ class Query(object):
             )
         res = src.get_results()
         return res
-
-    def getPapiSumTable(self, job_id, start, end):
-        """Return statistical papi data in table format"""
-        try:
-            result = {}
-            columns = [
-                { "text" : "Metric" },
-                { "text" : "Min" },
-                { "text" : "Rank w/Min" },
-                { "text" : "Max" },
-                { "text" : "Rank w/Max" },
-                { "text" : "Mean" },
-                { "text" : "Standard Deviation" }
-            ]
-            result['columns'] = columns
-            if not job_id:
-                print('no job_id')
-                return None
-            xfrm, job = self.getPapiDerivedMetrics(job_id, time_series=True, start=start, end=end)
-            events, mins, maxs, stats = self.getPapiRankStats(xfrm, job)
-            rows = []
-            for name in events:
-                row = []
-                row.append(name)
-                row.append(np.nan_to_num(mins.array(name+'_min')[0]))
-                row.append(np.nan_to_num(mins.array(name+'_min_rank')[0]))
-                row.append(np.nan_to_num(maxs.array(name+'_max')[0]))
-                row.append(np.nan_to_num(maxs.array(name+'_max_rank')[0]))
-                row.append(np.nan_to_num(stats.array(name+'_mean')[0]))
-                row.append(np.nan_to_num(stats.array(name+'_std')[0]))
-                rows.append(row)
-            result["rows"] = rows
-            result["type"] = "table"
-            res = [ result ]
-            return res
-        except Exception as e:
-            a, b, c = sys.exc_info()
-            log.write('getPapiSumTable Err: '+str(e)+' '+str(c.tb_lineno))
-            return None
 
     def papiGetLikeJobs(self, job_id, start, end):
         """Return jobs similar to requested job_id based on similar instance data"""
@@ -515,50 +414,7 @@ class Query(object):
             log.write('PapiLikeJobs '+str(e)+' '+str(c.tb_lineno))
             return None
 
-    def getMeanPapiRankTable(self, job_id, start, end):
-        """Return mean papi metrics across ranks for a given job_id"""
-        if not job_id:
-            log.write('No job_id')
-            return [ { "columns" : [{"text":"No Job Id specified"}], "rows" : [], "type" : "table" } ]
-        xfrm, job = self.getPapiDerivedMetrics(job_id, time_series=True, start=start, end=end)
-        if not xfrm:
-            return [ { "columns" : [], "rows" : [], "type" : "table" } ]
-        xfrm.push(job)
-        idx = job.series.index('tot_ins')
-        series = job.series[idx:]
-        xfrm.mean(series, group_name='rank', keep=job.series[0:idx-1], xfrm_suffix='')
-        job = xfrm.pop()
-        result = {}
-        rows = []
-        columns = []
-        series_names = [ 'timestamp', 'job_id', 'component_id',
-                         'rank',
-                         'cpi', 'uopi',
-                         'l1_miss_rate', 'l1_miss_ratio',
-                         'l2_miss_rate', 'l2_miss_ratio',
-                         'l3_miss_rate', 'l3_miss_ratio',
-                         'fp_rate', 'branch_rate',
-                         'load_rate', 'store_rate' ]
-        idx = series_names.index('timestamp')
-        del series_names[idx]
-        idx = series_names.index('job_id')
-        del series_names[idx]
-        idx = series_names.index('component_id')
-        del series_names[idx]
-        for ser in series_names:
-            columns.append({"text": ser})
-        result['columns'] = columns
-        for i in range(0, job.series_size):
-            row = []
-            for col in series_names:
-                row.append(np.nan_to_num(job.array(col)[i]))
-            rows.append(row)
-        result["rows"] = rows
-        result["type"] = "table"
-        if not result:
-            return [ { "columns" : [], "rows" : [], "type" : "table" } ]
-        return [ result ]
-
+    '''
     def getPapiDerivedMetrics(self, job_id, time_series=False, start=None, end=None):
         """Calculate derived papi metrics for a given job_id"""
         try:
@@ -568,8 +424,8 @@ class Query(object):
                 [ 'PAPI_TOT_INS[timestamp]',
                   'PAPI_TOT_INS[component_id]',
                   'PAPI_TOT_INS[job_id]',
-                  'PAPI_TOT_INS[rank]' ] + event_name_map.keys(),
-                       from_    = event_name_map.keys(),
+                  'PAPI_TOT_INS[rank]' ] + list(event_name_map.keys()),
+                       from_    = list(event_name_map.keys()),
                        where    = [ [ 'job_id', Sos.COND_EQ, int(job_id) ]
                                 ],
                        order_by = 'job_rank_time')
@@ -694,6 +550,7 @@ class Query(object):
             a, b, c = sys.exc_info()
             log.write('papiRankStats '+str(e)+' '+str(c.tb_lineno))
             return (None, None, None, None)
+    '''
 
 class Annotations(object):
     def __init__(self, cont):
@@ -731,7 +588,7 @@ class Annotations(object):
             ]
             by = 'time_job'
 
-        src.select([ 'job_id', 'job_start', 'job_end' ],
+        src.select([ 'job_id', 'job_start', 'job_end', 'component_id' ],
                        from_ = [ 'mt-slurm' ],
                        where = where,
                        order_by = by
@@ -742,9 +599,9 @@ class Annotations(object):
             return res
         # x.top().show()
         result = x.dup()
-        x.min([ 'job_start' ], group_name='job_id', xfrm_suffix='')
+        x.min([ 'job_start' ], group_name='job_id', keep=['component_id'], xfrm_suffix='')
         result.concat(x.pop())
-        x.max([ 'job_end' ], group_name='job_id', xfrm_suffix='')
+        x.max([ 'job_end' ], group_name='job_id', keep=['component_id'], xfrm_suffix='')
         result.concat(x.pop())
         nda = result.array('job_start')
         nda *= 1000

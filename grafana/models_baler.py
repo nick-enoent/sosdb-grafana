@@ -1,3 +1,4 @@
+from builtins import str
 from django.shortcuts import render
 from django.db import models
 import datetime as dt
