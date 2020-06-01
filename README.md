@@ -12,25 +12,139 @@ Install Dependencies:
     sosds (Grafana datasource for SOS)
     Grafana
 
-Templates
-============
-Query format is as such:
-	container&schema&search_type
+
+## SOS JSON Datasource
+========================
+Implements the following urls:
+
+ * `/` should return 200 ok. Used for "Test connection" on the datasource config page.
+ * `/search` used by the find metric options on the query tab in panels.
+ * `/query` returns metrics based on input.
+ * `/annotations` is not currently supported by sos_web_svcs.
+
+### Query API
+Format
+	- table or time_series
+	- some Query Types will only return table or time_series
+Container
+	- name of container to query from
+Schema
+	- schema to query from
+Job ID
+	- job_id to query data from
+	- may be left blank or 0
+Comp ID
+	- component_id to query data from
+Metric
+	- a metric from the specified schema to query for
+Query Type:
+	metrics
+		- returns metric datapoints over time
+	analysis
+		- informs back end to look for "analysis" parameter
+		- input name of numsos analysis module in "Analysis" parameter to use
+	papi_rank_table
+		- displays rank information for a given job
+		- requires job_id
+	papi_job_summary
+		 - displays job summary info for a given PAPI job
+		- requires job_id
+	job_table
+		- returns list of recent jobs and relevant info
+	like_jobs
+		- returns jobs related to job_id provided. requires kokkos_app schema
+		- requires job_id
+	papi_timeseries
+		- returns time_series data for papi metrics
 	
-	Where:
-		container
-			name of the container to query
-			If only container is defined, the template query will return schema names
-		schema
-			string of schema in container to query
-			If only container and schema are defined, the template query will return
-				metrics by default
-		search_type
-			If search_type is "metrics", the template query will return metrics
-			If search_type is "index", the template query will return index attributes
+Analysis:
+	- text input by user
+	- user defined python analytics module. pre-packaged modules currently include:
+	rankMemByJob
+		- gets the high or low memory thresholds across jobs in a given time range
+		Extra Parameters:
+			- threshold=<threshold>
+				-> set to a positive integer to get top N jobs with memory usage
+				-> set to a negative integer to get bottom N jobs with memory usage
+			- summary
+				-> specifying summary will return a summary across jobs in time
+				   range
+				-> returns standard deviation -2 > x > 2, as well as high and
+				   low job
+			- Inlcude "idle" parameter before "threshold", e.g. "idle&threshold=10"
+				- gets the high or low memory thresholds across components
+				  not running jobs
+	compMinMeanMax
+		- returns the min, mean, and max datapoints for a job's particular metric across components
+		- only one metric may be specified
+	lustreData
+		- returns sum of metrics provided per second ( Bytes per second )
+		Extra Parameters:
+			- threshold=<threshold>
+				
+			- meta
+				- must be included before "threshold" in query parameters e.g.
+					"meta&threshold=10"
+				- returns sum of metrics provided per second
+				  ( Inputs/Outputs per second )
+				
+Extra Parameters: Extra arguments used when analysis other than metric is selected
+
+
+
+Example response
+``` javascript
+[
+  {
+    "target":"current_freemem", // The field being queried for 
+    "datapoints":[
+      [622,1450754160000],  // Metric value as a float , unixtimestamp in milliseconds
+      [365,1450754220000]
+    ]   
+  },  
+  {
+    "target":"nrx_RDMA",
+    "datapoints":[
+      [861,1450754160000],
+      [767,1450754220000]
+    ]   
+  }
+]
+```
+
+```
+Access-Control-Allow-Headers:accept, content-type
+Access-Control-Allow-Methods:POST
+Access-Control-Allow-Origin:*
+```
+
+### Search API
+These template variables can be defined in the dashboard settings under "variables".
+Example request
+        The first parameter in the target is the desired data
+                SCHEMA:
+                        Syntax: query=schema&container=<cont_name>
+                INDEX:
+                        Syntax: query=index&container=<cont_name>&schema=<schema_name>
+                METRICS:
+                        Syntax: query=metrics&container=<cont_name>&schema=<schema_name>
+                COMPONENTS:
+                        Syntax: query=components&container=<cont_name>&schema=<schema_name>
+                JOBS:
+                        Syntax: query=jobs&container=<cont_name>&schema=<schema_name>
+```
+
+The search api can either return an array or map.
+
+Example array response
+``` javascript
+{ current_freemem : 'current_freemem', nrx_RDMA : 'nrx_RDMA' }
+```
 
 Annotations
 ============
 
 Query format is as such:
-	store&ptn_id&job_id&comp_id
+	container=<cont_name>&job_id=<job_id>&comp_id=<comp_id>
+
+

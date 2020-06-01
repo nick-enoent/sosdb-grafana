@@ -1,7 +1,19 @@
-<query-editor-row query-ctrl="ctrl" class="sos-datasource-query-row" has-text-edit-mode="true">
+<query-editor-row query-ctrl="ctrl" can-collapse="true" class="sos-datasource-query-row" has-text-edit-mode="true">
   <div class="gf-form-inline">
 
-    <div class="gf-form max-width-25">
+    <div class="gf-form max-width-20">
+      <label class="gf-form-label query-keyword width-8">
+        Format
+      </label>
+        <div class="gf-form-select-wrapper">
+          <select ng-model="ctrl.target.format" class="gf-form-input" placeholder="format"
+    	          ng-options="qt as qt for qt in [ 'time_series', 'table' ]"
+                  data-min-length=0 data-items=100
+                  ng-blur="ctrl.onChangeInternal()">
+          </select>
+        </div>
+    </div>
+    <div class="gf-form max-width-20">
       <label class="gf-form-label query-keyword width-8">
         Container
       </label>
@@ -11,78 +23,75 @@
                                                ng-blur="ctrl.onChangeInternal()">
       </input>
     </div>
-
-    <div class="gf-form max-width-25">
+    <div class="gf-form max-width-20">
       <label class="gf-form-label query-keyword width-8">
         Schema
       </label>
-      <input type="text" class="gf-form-input" spellcheck='false' ng-model='ctrl.target.schema' 
+      <input type="text" class="gf-form-input" spellcheck='false' ng-model='ctrl.target.schema'
                                                placeholder="schema name"
                                                data-min-length=0 data-items=100
                                                ng-blur="ctrl.onChangeInternal()">
       </input>
     </div>
-
-    <!--
-    <div class="gf-form max-width-25">
-      <label class="gf-form-label query-keyword width-8">
-        Index
-      </label>
-      <input type="text" class="gf-form-input" spellcheck='false' ng-model='ctrl.target.index' 
-                                               placeholder="index name"
-                                               data-min-length=0 data-items=100
-                                               ng-blur="ctrl.onChangeInternal()">
-      </input>
-    </div>
-    -->
-    <div class="gf-form max-width-25">
-      <label class="gf-form-label query-keyword width-8">
-        Comp ID
-      </label>
-      <input type="text" class="gf-form-input" spellcheck='false' ng-model='ctrl.target.comp_id'
-                                               placeholder="component id" 
-                                               data-min-length=0 data-items=100
-                                               ng-blure="ctrl.onChangeInternal()">
-      </input>
-    </div>
-    <div class="gf-form max-width-25">
+    <div class="gf-form max-width-20">
       <label class="gf-form-label query-keyword width-8">
         Job ID
       </label>
       <input type="text" class="gf-form-input" spellcheck='false' ng-model='ctrl.target.job_id'
-                                               placeholder="job id" 
+                                               placeholder="job id"
                                                data-min-length=0 data-items=100
-                                               ng-blure="ctrl.onChangeInternal()">
+                                               ng-blur="ctrl.onChangeInternal()">
+      </input>
+    </div>
+    <div class="gf-form max-width-20">
+      <label class="gf-form-label query-keyword width-8">
+        Comp ID
+      </label>
+      <input type="text" class="gf-form-input" spellcheck='false' ng-model='ctrl.target.comp_id'
+                                               placeholder="component id"
+                                               data-min-length=0 data-items=100
+                                               ng-blur="ctrl.onChangeInternal()">
+      </input>
+    </div>
+    <div class="gf-form max-width-20">
+      <label class="gf-form-label query-keyword width-8">
+        Metric
+      </label>
+      <input type="text" class="gf-form-input" spellcheck='false' ng-model='ctrl.target.target'
+                                               placeholder="Metric(s)"
+                                               data-min-length=0 data-items=100
+                                               ng-blur="ctrl.onChangeInternal()">
       </input>
     </div>
   </div>
   <div class="gf-form-inline">
-    <div class="gf-form max-width-25">
-      <label class="gf-form-label query-keyword width-8">
-        Index
-      </label>
-      <metric-segment-model get-options="ctrl.getIdxAttrs()" property="ctrl.target.index"
-                            on-change="ctrl.onChangeInternal()" css-class="tight-form-iterm-xxlarge">
-      </metric-segment-model>
-    </div>
-    <div ng-dropdown-multiselect="" options="[{id:1, label='foo'},{id:2, label:'bar'}]" selected-model="metrc_select">
-    </div>
-    <div class="gf-form max-width-25">
+    <div class="gf-form max-width-20">
       <label class="gf-form-label query-keyword width-8">Query Type</label>
         <div class="gf-form-select-wrapper">
           <select ng-model="ctrl.target.query_type" class="gf-form-input"
-                  ng-options="qt as qt for qt in ['metrics', 'derivative', 'least_sq', 'bollinger']"
+                  ng-options="qt as qt for qt in ['metrics', 'analysis', 'papi_rank_table','papi_job_summary', 'like_jobs','papi_timeseries']"
                   ng-blur="ctrl.onChangeInternal()">
           </select>
         </div>
     </div>
-    <div class="gf-form max-width-25">
-      <label class="gf-form-label query-keyword width-8">
-        Metric
+    <div class="gf-form max-width-20">
+      <label class="gf-form-label query-keyword width-8">Analysis</label>
+      <input type="text" class="gf-form-input" spellcheck="false" ng-model="ctrl.target.analysis"
+                                               placeholder="extra parameters"
+                                               data-min-length=0 data-items=100
+                                               ng-blur="ctrl.onChangeInternal()">
+      </input>
+
+    </div>
+    <div class="gf-form max-width-20">
+      <label class="gf-form-label query-keyword width-9">
+        Extra Parameters
       </label>
-      <metric-segment-model get-options="ctrl.getMetrics()" property="ctrl.target.target"
-                            on-change="ctrl.onChangeInternal()" css-class="tight-form-iterm-xxlarge">
-      </metric-segment-model>
+      <input type="text" class="gf-form-input" spellcheck="false" ng-model="ctrl.target.extra_params"
+                                               placeholder="extra parameters"
+                                               data-min-length=0 data-items=100
+                                               ng-blur="ctrl.onChangeInternal()">
+      </input>
     </div>
 
 <!-- end metric params -->

@@ -1,543 +1,753 @@
 from django.db import models
 import datetime as dt
+import time
 import os, sys, traceback
-from sosdb import Sos, bollinger
+from sosdb import Sos
 from sosgui import settings, logging
+from numsos.DataSource import SosDataSource
+from numsos.Transform import Transform
+from sosdb.DataSet import DataSet
 import views
 import time
 import numpy as np
+import pandas as pd
 
 log = logging.MsgLog("Grafana SOS")
 
-class Object(object):
-    pass
+job_status_str = {
+    1 : "running",
+    2 : "complete"
+}
 
-def SosErrorReply(err):
-    return { "error" : repr(err) }
+papi_metrics = [ 
+    "PAPI_TOT_INS",
+    "PAPI_TOT_CYC",
+    "PAPI_LD_INS",
+    "PAPI_SR_INS",
+    "PAPI_BR_INS",
+    "PAPI_FP_OPS",
+    "PAPI_L1_ICM",
+    "PAPI_L1_DCM",
+    "PAPI_L2_ICA",
+    "PAPI_L2_TCA",
+    "PAPI_L2_TCM",
+    "PAPI_L3_TCA",
+    "PAPI_L3_TCM"
+]
 
-def open_test(path):
-    try:
-        c = Sos.Container(str(path))
-        c.close()
-        return True
-    except Exception as e:
-        log.write('open_test err: '+repr(e))
-        return False
+event_name_map = { 
+    "PAPI_TOT_INS" : "tot_ins",
+    "PAPI_TOT_CYC" : "tot_cyc",
+    "PAPI_LD_INS"  : "ld_ins",
+    "PAPI_SR_INS"  : "sr_ins",
+    "PAPI_BR_INS"  : "br_ins",
+    "PAPI_FP_OPS"  : "fp_ops",
+    "PAPI_L1_ICM"  : "l1_icm",
+    "PAPI_L1_DCM"  : "l1_dcm",
+    "PAPI_L2_ICA"  : "l2_ica",
+    "PAPI_L2_TCA"  : "l2_tca",
+    "PAPI_L2_TCM"  : "l2_tcm",
+    "PAPI_L3_TCA"  : "l3_tca",
+    "PAPI_L3_TCM"  : "l3_tcm"
+}
 
-def SosDir():
-    """
-    Given the SOS_ROOT, search the directory structure to find all
-    of the containers available for use. Note that even if the
-    directory is there, this will skip the container if the
-    requesting user does not have access rights.
+papi_derived_metrics = {
+    "cpi" : "cpi",
+    "uopi" : "uopi",
+    "l1_miss_rate" : "l1_miss_rate",
+    "l1_miss_ratio" : "l1_miss_ratio",
+    "l2_miss_rate" : "l2_miss_rate",
+    "l2_miss_ratio" : "l2_miss_ratio",
+    "l3_miss_rate" : "l3_miss_rate",
+    "l3_miss_ratio" : "l3_miss_ratio",
+    "l2_bw" : "l2_bw",
+    "l3_bw" : "l3_bw",
+    "fp_rate" : "fp_rate",
+    "branch_rate" : "branch_rate",
+    "load_rate" : "load_rate",
+    "store_rate" : "store_rate"
+}
 
-    The OVIS store is organized like this:
-    {sos_root}/{container_name}/{timestamped version}
-    """
-    rows = []
-    try:
-        dirs = os.listdir(settings.SOS_ROOT)
-        # Check each subdirectory for files that constitute a container
-        for ovc in dirs:
-            try:
-                ovc_path = settings.SOS_ROOT + '/' + ovc
-                try:
-                    files = os.listdir(ovc_path)
-                    if '.__schemas.OBJ' in files:
-                        if open_test(ovc_path):
-                            rows.append( ovc )
-                except Exception as e:
-                    log.write(e)
-            except Exception as e:
-                log.write(e)
-        return rows
-    except Exception as e:
-        # return render.table_json('directory', [ 'name' ], [], 0)
-        log.write('SosDir Err: '+str(e))
-        return SosErrorReply(e)
+class Search(object):
+    def __init__(self, cont):
+        self.cont = cont
 
-class SosRequest(object):
-    """
-    This base class handles the 'container', 'encoding' and 'schema',
-    'start', and 'count' keywords. For DataTables compatability, 'iDisplayStart'
-    is a synonym of 'start' and 'iDisplayCount' is a synonym of 'count'.
-    """
-    JSON = 0
-    TABLE = 1
-    def __init__(self):
-        self.encoding_ = self.JSON
-        self.container_ = None
-        self.schema_ = None
-        self.start = 0
-        self.count = 10
+    def getSchema(self, cont):
+        self.schemas = {}
+        schemas = {}
+        for schema in self.cont.schema_iter():
+            name = schema.name()
+            schemas[name] = name
+        return schemas
 
-    def release(self):
-        if self.container_:
-            self.container_.close()
-        self.container_ = None
+    def getIndices(self, cont, schema_name):
+        schema = cont.schema_by_name(schema_name)
+        indices = {}
+        for attr in schema:
+            if attr.is_indexed() == True:
+                name = attr.name()
+                indices[name] = name
+        return indices
 
-    def __del__(self):
-        self.release()
+    def getMetrics(self, cont, schema_name):
+        schema = cont.schema_by_name(schema_name)
+        attrs = {}
+        for attr in schema:
+            if attr.type() != Sos.TYPE_JOIN:
+                name = attr.name()
+                attrs[name] = name
+        if schema_name == 'papi-events':
+            attrs.update(papi_derived_metrics)
+        return attrs
 
-    def container(self):
-        return self.container_
+    def getComponents(self, cont, schema_name, start, end):
+        schema = cont.schema_by_name(schema_name)
+        attr = schema.attr_by_name("component_id")
+        if attr is None:
+            return {0}
+        src = SosDataSource()
+        src.config(cont=cont)
+        where = []
+        if start > 0:
+            where.append([ 'timestamp', Sos.COND_GE, start ])
+        if end > 0:
+            where.append([ 'timestamp', Sos.COND_LE, end ])
+        src.select([ 'component_id' ],
+                   from_    = [ schema_name ],
+                   where    = where,
+                   order_by = 'timestamp'
+        )
+        comps = src.get_results()
+        if comps is None:
+            return {0}
+        comp_ids = np.unique(comps['component_id'])
+        result = {}
+        for comp_id in comp_ids:
+            result[str(int(comp_id))] = int(comp_id)
+        return result
 
-    def encoding(self):
-        return self.encoding_
+    def getJobs(self, cont, schema_name, start, end):
+        # method to retrieve unique job_ids
+        schema = cont.schema_by_name(schema_name)
+        attr = schema.attr_by_name("job_id")
+        if attr is None:
+            return None
+        src = SosDataSource()
+        src.config(cont=cont)
+        where_ = []
+        where_.append(['job_id', Sos.COND_GT, 1])
+        where_.append([ 'timestamp', Sos.COND_GT, start ])
+        if end > 0:
+            where_.append([ 'timestamp', Sos.COND_LE, end ])
+        src.select([ 'job_id' ],
+                   from_    = [ schema_name ],
+                   where    = where_,
+                   order_by = 'time_job_comp'
+        )
+        jobs = src.get_results(limit=8128)
+        if jobs is None:
+            return {0}
+        job_ids = np.unique(jobs['job_id'])
+        job_ids = jobs.array('job_id')
+        result = {}
+        for job_id in job_ids:
+            result[str(int(job_id))] = int(job_id)
+        return result
 
-    def schema(self):
-        return self.schema_
+class Query(object):
+    def __init__(self, cont, schemaName, index='time_job_comp'):
+        self.cont = cont
+        self.schemaName = schemaName
+        self.index = index
+        self.maxDataPoints = 4096
 
-    def open_container(self, input_):
-        #
-        # Open the container or get it from our directory
-        #
-        self.input_ = input_
+    def getJobComponents(self, job_id):
+        """Get components for a particular job"""
+        src = SosDataSource()
+        src.config(cont=self.cont)
+        src.select([ 'component_id' ],
+                   from_ = [ self.schemaName ],
+                   where = [ [ 'job_id', Sos.COND_EQ, job_id ] ],
+                   order_by = 'job_comp_time'
+                   )
+        res = src.get_results(limit=4096)
+        if res:
+            ucomps = np.unique(res['component_id'].tolist())
+            return ucomps
+        return None
+
+    def getJobCompEnd(self, job_id):
+        """Get job end"""
+        src = SosDataSource()
+        src.config(cont=self.cont)
+        src.select([ self.schemaName+'.*' ],
+                  from_    = [ self.schemaName ],
+                  where    = [ [ 'job_id', Sos.COND_EQ, job_id ],
+                               [ 'job_status', Sos.COND_EQ, 2 ]
+                             ],
+                  order_by = 'job_comp_time')
+        res = src.get_results()
+        if res is None:
+            return None
+        xfrm = Transform(src, None, limit=4096)
+        res = xfrm.begin()
+        xfrm.max([ 'job_end' ], group_name='component_id')
+        comp_time = xfrm.pop()
+        nodes = np.arange(comp_time.get_series_size())
+        comp_time.append_array(comp_time.get_series_size(), 'node_id', nodes)
+        return comp_time
+
+    def getComponents(self, start, end):
+        """Return unique components with data for this schema"""
+        src = SosDataSource()
+        src.config(cont=self.cont)
+        src.select([ 'component_id' ],
+                   from_ = [ self.schemaName ],
+                   where = [
+                       [ timestamp, Sos.COND_GE, start ],
+                       [ timestamp, Sos.COND_LE, end ]
+                   ],
+                   order_by = 'time_comp'
+               )
+        res = src.get_results(limit=4096)
+        if res:
+            ucomps = np.unique(res['component_id'])
+            return ucomps
+        return None
+
+    def getPapiTimeseries(self, metricNames, job_id,
+                          start, end, intervalMs, maxDataPoints):
+        """Return time series data for papi-events schema"""
+        self.maxDataPoints = maxDataPoints
+        src = SosDataSource()
+        src.config(cont=self.cont)
+        result = []
+        if self.schemaName == 'kokkos_app':
+            for metric in metricNames:
+                src.select([metric, 'start_time'],
+                    from_ = [ self.schemaName ],
+                    where = [
+                        [ 'start_time', Sos.COND_GE, start ]
+                    ],
+                    order_by = 'job_id'
+                )
+                res = src.get_results()
+                l = res.series_size
+                result.append({"target" : metric, "datapoints" : res.tolist() })
+            return result
         try:
-            self.container_ = Sos.Container(str(settings.SOS_ROOT + '/' + input_.container))
+            if not job_id:
+                return [{ "target" : "Job Id required for papi_timeseries", datapoints : [] } ]
+            xfrm, job = self.getPapiDerivedMetrics(job_id, time_series=True, start=start, end=end)
+            for metric in metricNames:
+                if metric in event_name_map:
+                    metric = event_name_map[metric]
+                datapoints = []
+                i = 0
+                while i < len(job.array(metric)):
+                    if i > 0:
+                        if job.array('rank')[i-1] != job.array('rank')[i]:
+                            result.append({"target" : '[Rank'+str(job.array('rank')[i-1])+']'+metric,
+                                           "datapoints" : datapoints })
+                            datapoints = []
+                    nda = np.array(job.array('timestamp'), dtype='double')
+                    dp = [ job.array(metric)[i], nda[i]/1000 ]
+                    datapoints.append(dp)
+                    i += 1
+                result.append({"target" : '[Rank'+str(job.array('rank')[i-1])+']'+metric,
+                               "datapoints" : datapoints })
+            return result
         except Exception as e:
-            log.write(e)
-            return {"The container {0} could not be opened" : repr(input_.container)}
+            a, b, c = sys.exc_info()
+            log.write('papi_timeseries '+str(e)+' '+str(c.tb_lineno))
+            return None
 
-        try:
-            if self.container():
-                self.schema_ = self.container().schema_by_name(input_.schema)
-        except Exception as e:
-            self.schema_ = None
-            exc_a, exc_b, exc_tb = sys.exc_info()
-            log.write('schema error: '+repr(e)+' '+repr(exc_tb.tb_lineno))
-            return { "Schema Error" : "Schema does not exist in Container" }
+    def getCompTimeseries(self, compIds, metricNames,
+                          start, end, intervalMs, maxDataPoints, jobId=0):
+        """Return time series data for a particular component/s"""
+        src = SosDataSource()
+        src.config(cont=self.cont)
 
-        #
-        # iDisplayStart (dataTable), start
-        #
-        try:
-            self.start = int(input_.start_time)
-            self.end = int(input_.end_time)
-        except Exception as e:
-            self.start = 0
-            self.end = None
-        #
-        # iDisplayLength (dataTables), count
-        #
-        try:
-            self.count = self.end - self.start
-        except Exception as e:
-            pass
-        # Job Id
-        try:
-            self.job_id = int(input_.job_id)
-        except Exception as e:
-            self.job_id = 0
-
-class SosContainer(SosRequest):
-    """
-    Build up a container object that includes the container's schema,
-    indexes and partitions
-    """
-    def GET(self, request):
-        try:
-            query = request.GET
-            self.open_container(query)
-            schema_rows = []
-            for schema in self.container().schema_iter():
-                row = { "Name" : schema.name(), "AttrCount" : schema.attr_count() }
-                schema_rows.append(row)
-            idx_rows = []
-            for index in self.container().index_iter():
-                stats = index.stats()
-                row = { "Name" : index.name(),
-                        "Entries" : stats['cardinality'],
-                        "Duplicates" : stats['duplicates'],
-                        "Size" : stats['size']}
-                idx_rows.append(row)
-            part_rows = []
-            for part in self.container().part_iter():
-                stat = part.stat()
-                row = { "Name" : str(part.name()),
-                        "State" : str(part.state()),
-                        "Id" : int(part.part_id()),
-                        "Size" : int(stat.size),
-                        "Accessed" : str(stat.accessed),
-                        #"Created" : stat['created'],
-                        "Modified" : str(stat.modified)
-                    }
-                part_rows.append(row)
-            return { "container" :
-                     { "schema" : schema_rows,
-                       "indexes" : idx_rows,
-                       "partitions" : part_rows
-                     }
-                 }
-        except Exception as e:
-            exc_a, exc_b, exc_tb = sys.exc_info()
-            log.write('SosContainer Err: '+repr(e)+' '+repr(exc_tb.tb_lineno))
-            return SosErrorReply(e)
-
-class SosSchema(SosRequest):
-    """
-    Return all of the attributes and attribute meta-data for the
-    specified schema.
-    """
-    def GET(self, request):
-        try:
-            query = request.GET
-            self.open_container(query)
-        except Exception as e:
-            log.write(e)
-            return SosErrorReply(e)
-        if not self.schema():
-            return SosErrorReply("A 'schema' clause must be specified.\n")
-        rows = []
-        for attr in self.schema():
-            rows.append(str(attr.name()))
-        log.write('rows '+repr(rows))
-        return rows
-
-class TemplateData(SosRequest):
-    def GET_ATTRS(self, request):
-        try:
-            search_type = 'metrics'
-            targets = request['target'].split('&')
-            input_= Object()
-            input_.container = targets[0]
-            if len(targets) == 1:
-                self.open_container(input_)
-                self.schemas = {}
-                for schema in self.container().schema_iter():
-                    self.schemas[schema.name()] = schema.name()
-                return self.schemas
+        result = []
+        if compIds:
+            if type(compIds) != list:
+                compIds = [ int(compIds) ]
+        elif jobId != 0:
+            src.select([ 'component_id'],
+                from_ = [ self.schemaName ],
+                where = [ [ 'job_id', Sos.COND_EQ, jobId ] ],
+                order_by = 'job_comp_time'
+            )
+            comps = src.get_results(limit=maxDataPoints)
+            if not comps:
+                compIds = np.zeros(1)
             else:
-                input_.schema = targets[1]
-                self.open_container(input_)
-            try:
-                search_type = targets[2]
-            except:
-                search_type = 'metrics'
-            self.metrics = {}
-            if search_type == 'index':
-                for attr in self.schema():
-                    if attr.is_indexed() == True:
-                        self.metrics[attr.name()] = attr.name()
-            elif search_type == 'metrics':
-                if not self.schema():
-                    return {'"Error, Schema does not exist in container"'}
-                for attr in self.schema():
-                    if attr.is_indexed() != True:
-                        self.metrics[attr.name()] = attr.name()
-            elif search_type == 'jobs':
-                if not self.schema():
-                    return {'"Error, Schema does not exist in container"'}
-                self.metrics = getJobs(self.container())
-            return self.metrics
-        except Exception as e:
-            exc_a, exc_b, exc_tb = sys.exc_info()
-            log.write('TemplateData Err: '+repr(e)+' '+repr(exc_tb.tb_lineno))
-            return {'TemplateData Err' : str(e) }
-
-class SosQuery(SosRequest):
-    """
-    This is the base class for the SosTable class. It handles all of
-    the query preparation, such as creating the filter, advancing to
-    the first matching element, etc.
-    """
-    def __init__(self):
-        SosRequest.__init__(self)
-        self.filt = None
-
-    def parse_query(self, request):
-        self.parms = request
-        try:
-            self.open_container(self.parms)
-        except Exception as e:
-            return (1, "Exception in open_container: {0}".format(e), None)
-
-        if not self.schema():
-            return (1, "A 'schema' clause must be specified.\n", None)
-
-        if not self.parms.index:
-            return (1, "An 'index' clause must be specified.\n", None)
-
-        self.maxDataPoints = int(request.maxDataPoints)
-        self.intervalMs = float(request.intervalMs)
-        #
-        # Open an iterator on the container
-        #
-        self.index_attr = None
-        self.schema_name = self.schema().name()
-        self.index_name = self.parms.index
-        self.index_attr = self.schema().attr_by_name(self.index_name)
-        self.tstamp = self.schema().attr_by_name('timestamp')
-        self.comp_id_attr = self.schema().attr_by_name('component_id')
-        self.job_id_attr = self.schema().attr_by_name('job_id')
-        self.iter_ = self.index_attr.index().stats()
-        self.filt = Sos.Filter(self.index_attr)
-        self.unique = False
-        self.card = self.iter_['cardinality']
-        if self.unique:
-            self.card = self.card - self.iter_['duplicates']
-        return (0, None)
-
-class SosTable(SosQuery):
-    def __init__(self):
-        SosQuery.__init__(self)
-
-    def getComponents(self, request, job_id):
-        try:
-            self.parse_query(request)
-            filt = Sos.Filter(self.schema().attr_by_name('job_time_comp'))
-            filt.add_condition(self.job_id_attr, Sos.COND_EQ, str(job_id))
-            filt.add_condition(self.tstamp, Sos.COND_GE, str(self.start))
-            filt.add_condition(self.tstamp, Sos.COND_LE, str(self.end))
-            shape = [ 'component_id' ]
-            count, nda = filt.as_timeseries(1024,
-                                            shape=shape,
-                                            order='index',
-                                            interval_ms=self.intervalMs)
-            comps = np.unique(nda)
-            del filt
-            self.release()
-            return comps
-
-        except Exception as e:
-            if self.filt:
-                del self.filt
-            exc_a, exc_b, exc_tb = sys.exc_info()
-            log.write('getData: '+repr(e)+' '+repr(exc_tb.tb_lineno))
-            log.write(traceback.format_tb(exc_tb))
-            self.release()
-            return ('err', {"target": +str(e), "datapoints" : []}, None, 0)
-
-    def getData(self, request, job_id, comp_id):
-        try:
-            self.parse_query(request)
-            self.view_cols = []
-            self.met_lst = {}
-            if not self.schema():
-                return ('err', '{"target": "Schema does not exist in container", "datapoints" : [] }', None, 0)
-            for attr in self.schema():
-                self.met_lst[str(attr.name())] = str(attr.name())
-            if self.parms.metric_select:
-                self.metric_select = self.parms.metric_select
-                for attr_name in self.metric_select.split(','):
-                    if attr_name != self.index_name:
-                        a_name = self.met_lst[str(attr_name)]
-                        self.view_cols.append(a_name)
+                compIds = np.unique(comps['component_id'].tolist())
+        else:
+            src.select([ 'component_id' ],
+                from_ = [ self.schemaName ],
+                where = [
+                           [ 'timestamp', Sos.COND_GE, start ],
+                           [ 'timestamp', Sos.COND_LE, end ],
+                       ],
+                       order_by = 'time_comp_job'
+                   )
+            comps = src.get_results(limit=maxDataPoints)
+            if not comps:
+                compIds = np.zeros(1)
             else:
-                for attr in self.schema():
-                    if attr.name() != self.index_name:
-                        self.view_cols.append(attr.name())
-
-            obj = None
-            if self.start == 0:
-                obj = self.filt.begin()
-            else:
+                compIds = np.unique(comps['component_id'].tolist())
+        for comp_id in compIds:
+            for metric in metricNames:
                 if comp_id != 0:
-                    self.filt.add_condition(self.comp_id_attr, Sos.COND_EQ, str(comp_id))
-                if job_id != 0:
-                    self.filt.add_condition(self.job_id_attr, Sos.COND_EQ, str(job_id))
-                self.filt.add_condition(self.tstamp, Sos.COND_GE, str(self.start))
-                self.filt.add_condition(self.tstamp, Sos.COND_LE, str(self.end))
-            shape = [ self.tstamp.name() ] + self.view_cols
-            time_col = 0
-            count, nda = self.filt.as_timeseries(self.maxDataPoints,
-                                                 shape=shape,
-                                                 order='index',
-                                                 interval_ms=self.intervalMs)
-            if self.filt:
-                del self.filt
-            self.release()
-            return (count, nda, shape, time_col)
-        except Exception as e:
-            if self.filt:
-                del self.filt
-            exc_a, exc_b, exc_tb = sys.exc_info()
-            log.write('getData: '+repr(e)+' '+repr(exc_tb.tb_lineno))
-            log.write(traceback.format_tb(exc_tb))
-            self.release()
-            return (0, [], [], time_col)
-            # return ('err', {"target": +str(e), "datapoints" : []}, None, 0)
-
-def getJobs(cont):
-        try:
-            schema = cont.schema_by_name('jobinfo')
-            start = schema.attr_by_name('job_start')
-            t = time.time()
-            filt = Sos.Filter(schema.attr_by_name('timestamp'))
-            obj = filt.end()
-            skip = 1024
-            while skip > 0:
-                obj = filt.prev()
-                if obj != None:
-                    skip = skip - 1
+                    where_ = [
+                        [ 'component_id', Sos.COND_EQ, comp_id ]
+                    ]
                 else:
-                    break
-            count, nda = filt.as_timeseries(1024, shape=[ 'job_id' ], order='index')
-            jobs = np.unique(nda)
-            d = {}
-            for job in jobs:
-                if job == 0:
+                    where_ = []
+                if jobId != 0:
+                    self.index = "job_comp_time"
+                    where_.append([ 'job_id', Sos.COND_EQ, int(jobId) ])
+                else:
+                    self.index = "time_comp"
+                    where_.append([ 'timestamp', Sos.COND_GE, start ])
+                    where_.append([ 'timestamp', Sos.COND_LE, end ])
+                src.select([ metric, 'timestamp' ],
+                           from_ = [ self.schemaName ],
+                           where = where_,
+                           order_by = self.index
+                       )
+                inp = None
+                time_delta = end - start
+                res = src.get_results(inputer=inp, limit=maxDataPoints)
+                if res is None:
                     continue
-                d[ str(int(job)) ] = int(job)
-            del filt
-            print d
-            return d
-        except Exception as e:
-            print("Jobs Error: {0}".format(str(e)))
-            return []
+                if len(res.array(metric)) >  maxDataPoints:
+                    if time_delta > maxDataPoints:
+                        time_delta=maxDataPoints
+                    # set index of DATAFRAME to timestamp
+                    series = pd.DataFrame(res.array(metric), index=res.array('timestamp'))
+                    rs = series.resample('S').mean()
+                    ts = rs.index
+                    i = 0
+                    tstamps = []
+                    while i < ts.size:
+                        ts = pd.Timestamp(ts[i])
+                        ts = np.int_(ts.timestamp()*1000)
+                        tstamps.append(ts)
+                        i += 1
+                    res = DataSet()
+                    res.append_array(len(rs.values.flatten()), metric, rs.values)
+                    res.append_array(len(tstamps), 'timestamp', tstamps)
 
-class JobInfo(SosTable):
-    def __init__(self):
-        SosTable.__init__(self)
+                if res is None:
+                    return None
+                result.append({ "comp_id" : comp_id, "metric" : metric, "datapoints" :
+                                res.tolist() })
+        return result
 
-    def getData(self, request, job_id, comp_id):
-        try:
-            self.parse_query(request)
-            self.view_cols = []
-            self.met_lst = {}
-            if not self.schema():
-                return ('err', '{"target": "Schema does not exist in container", "datapoints" : [] }', None, 0)
-            for attr in self.schema():
-                self.met_lst[str(attr.name())] = str(attr.name())
-            if self.parms.metric_select:
-                self.metric_select = self.parms.metric_select
-                for attr_name in self.metric_select.split(','):
-                    if attr_name != self.index_name:
-                        a_name = self.met_lst[str(attr_name)]
-                        self.view_cols.append(a_name)
+    def getJobTable(self, jobId, start, end):
+        """Return a table of jobs run in the specified time interval"""
+        src = SosDataSource()
+        src.config(cont=self.cont)
+        where = [
+            [ 'timestamp', Sos.COND_GE, start ],
+            [ 'timestamp', Sos.COND_LE, end ],
+            [ 'job_start', Sos.COND_GT, 1 ]
+        ]
+        if jobId != 0:
+            where.insert(0, [ 'job_id', Sos.COND_EQ, jobId ])
+
+        src.select([ 'job_id','job_size', 'uid','job_start','job_end','job_status','task_exit_status' ],
+                   from_ = [ self.schemaName ],
+                   where = where,
+                   order_by = 'job_rank_time'
+        )
+        x = Transform(src, None, limit=12384)
+        res = x.begin()
+        res = src.get_results()
+        #if not res:
+        #    return res
+
+        result = x.dup()
+        x.min([ 'job_start' ], group_name='job_id',
+              keep=[ 'job_id', 'job_size', 'uid' ],
+              xfrm_suffix='')
+        result.concat(x.pop())
+        x.max([ 'job_end' ], group_name='job_id', xfrm_suffix='')
+        result.concat(x.pop())
+        nda = result.array('job_start')
+        nda *= 1000
+        nda1 = result.array('job_end')
+        nda1 *= 1000
+        i = 0
+        rows = []
+        cols = []
+        jids = []
+        cols = [ { "text" : "job_id" },
+                 { "text" : "CPU Dashboards" },
+                 { "text" : "Cache Dashboards" },
+                 { "text" : "job_size" },
+                 { "text" : "user_id" },
+                 { "text" : "job_status" },
+                 { "text" : "job_start" },
+                 { "text" : "job_end" },
+                 { "text" : "task_exit_status" }
+               ]
+        while i < result.get_series_size() - 1:
+            row = []
+            if result.array('job_id')[i] in jids:
+                pass
             else:
-                for attr in self.schema():
-                    if attr.name() != self.index_name:
-                        self.view_cols.append(attr.name())
-
-            job_start = self.schema().attr_by_name('job_start')
-            obj = None
-            if self.start != 0:
-                self.filt.add_condition(job_start, Sos.COND_GE, str(self.start))
-                self.filt.add_condition(job_start, Sos.COND_LE, str(self.end))
-            obj = self.filt.begin()
-            rows = []
-            cols = []
-            for col in self.view_cols:
-                cols.append([])
-            count = len(self.view_cols)
-            job_id_idx = self.schema().attr_by_name('job_id').attr_id()
-            job_start_idx = self.schema().attr_by_name('job_start').attr_id()
-            job_end_idx = self.schema().attr_by_name('job_end').attr_id()
-            job_user_idx = self.schema().attr_by_name('job_user').attr_id()
-            job_exit_idx = self.schema().attr_by_name('job_exit_status').attr_id()
-            job_name_idx = self.schema().attr_by_name('job_name').attr_id()
-            id_col = {}
-            end_col = {}
-            name_col = {}
-            user_col = {}
-            exit_col = {}
-            while obj:
-                jid = obj[job_id_idx]
-                ts = obj[job_start_idx] * 1000
-                id_col[jid] = [ obj[job_id_idx], ts ]
-                end_col[jid] = [ obj[job_end_idx] * 1000, ts ]
-                name_col[jid] = [ obj[job_name_idx].tostring(), ts ]
-                user_col[jid] = [ obj[job_user_idx].tostring(), ts ]
-                exit_col[jid] = [ obj[job_exit_idx], ts ]
-                obj = self.filt.next()
-
-            ids = [ x[1] for x in id_col.items() ]
-            ends = [ x[1] for x in end_col.items() ]
-            names = [ x[1] for x in name_col.items() ]
-            users = [ x[1] for x in user_col.items() ]
-            exits = [ x[1] for x in exit_col.items() ]
-            if self.filt:
-                del self.filt
-            self.release()
-            return (count,
-                    [ ids, ends, users, exits ],
-                    [ 'job_id', 'job_end', 'job_user', 'job_exit' ], 0)
-
-        except Exception as e:
-            if self.filt:
-                del self.filt
-            exc_a, exc_b, exc_tb = sys.exc_info()
-            log.write('getData: '+repr(e)+' '+repr(exc_tb.tb_lineno))
-            log.write(traceback.format_tb(exc_tb))
-            self.release()
-            return (0, [], [], 0)
-
-class Derivative(SosTable):
-    def __init__(self):
-        SosTable.__init__(self)
-
-    def getData(self, request, job_id, comp_id):
-        (count, data, cols, time_col) = SosTable.getData(self, request, job_id, comp_id)
-        if count > 0:
-            res = data[0:count]
-            res[:,time_col] *= 1000 # scale seconds to milliseconds
-            for col in range(0, len(cols)):
-                if col == time_col:
-                    continue
-                res[:,col] = np.gradient(res[:,col])
-        else:
-            res = []
-        return (count, res, cols, time_col)
-
-class Metrics(SosTable):
-    def __init__(self):
-        SosTable.__init__(self)
-
-    def getData(self, request, job_id, comp_id):
-        (count, data, cols, time_col) = SosTable.getData(self, request, job_id, comp_id)
-        if count > 0:
-            res = data[0:count]
-            res[:,time_col] *= 1000 # scale seconds to milliseconds
-        else:
-            res = []
-        return (count, res, cols, time_col)
-
-class BollingerBand(SosTable):
-    def __init__(self):
-        SosTable.__init__(self)
-
-    def getData(self, request, job_id, comp_id):
-        (count, data, cols, time_col) = SosTable.getData(self, request, job_id, comp_id)
-        if count > 0:
-            res = data[0:count]
-            res[:,time_col] *= 1000 # scale seconds to milliseconds
-            b = bollinger.Bollinger_band()
-            bb = b.calculate(res[:,1], res[:,0])
-            lres = len(bb['upperband'])
-            bbres = np.ndarray([lres, 5])
-            win = bb['window']
-            cols = ['timestamp', 'ma', 'upper', 'lower', cols[1]]
-            bbres[:,0] = res[win:lres+win,0]
-            bbres[:,1] = bb['ma']
-            bbres[:,2] = bb['upperband']
-            bbres[:,3] = bb['lowerband']
-            bbres[:,4] = res[win:lres+win,1]
-            count = lres
-        else:
-            bbres = []
-        return (count, bbres, cols, time_col)
-
-'''
-
-class IndexAttrs(SosRequest):
-    def GET_IDX_ATTRS(self, request):
-        try:
-            targets = request['target']
-            input_ = Object()
-            input_.container = targets[0]
-            input_.schema = targets[1]
-            self.open_container(input_)
-            idx_iter = self.container().idx_iter()
-            self.idx_attrs = []
-            for i in idx_iter:
-                if i.name().split('_', 0) == input_.container:
-                    self.idx_attrs.append(i.name().split('_', 1))
+                jids.append(result.array('job_id')[i])
+                row.append(result.array('job_id')[i])
+                row.append('CPU Stats')
+                row.append('Cache Stats')
+                row.append(result.array('job_size')[i])
+                row.append(result.array('uid')[i])
+                row.append(job_status_str[result.array('job_status')[i]])
+                row.append(result.array('job_start')[i])
+                if result.array('job_end')[i] != 0:
+                    row.append(result.array('job_end')[i])
                 else:
-                    pass
-            return self.idx_attrs
+                    row.append(time.time()*1000)
+                row.append(result.array('task_exit_status')[i])
+                rows.append(row)
+            i += 1
+        return cols, rows
+
+    def getTable(self, index, metricNames, start, end):
+        src = SosDataSource()
+        src.config(cont=self.cont)
+        if self.schemaName == 'kokkos_app':
+            src.select(metricNames,
+                       from_ = [ self.schemaName ],
+                       where = [
+                           [ 'start_time', Sos.COND_GE, start ],
+                       ],
+                       order_by = 'time_job_comp'
+            )
+        else:
+            src.select(metricNames,
+                       from_ = [ self.schemaName ],
+                       where = [
+                           [ 'timestamp', Sos.COND_GE, start ],
+                           [ 'timestamp', Sos.COND_LE, end ]
+                       ],
+                       order_by = "time_comp"
+            )
+        res = src.get_results()
+        return res
+
+    def getPapiSumTable(self, job_id, start, end):
+        """Return statistical papi data in table format"""
+        try:
+            result = {}
+            columns = [
+                { "text" : "Metric" },
+                { "text" : "Min" },
+                { "text" : "Rank w/Min" },
+                { "text" : "Max" },
+                { "text" : "Rank w/Max" },
+                { "text" : "Mean" },
+                { "text" : "Standard Deviation" }
+            ]
+            result['columns'] = columns
+            if not job_id:
+                print('no job_id')
+                return None
+            xfrm, job = self.getPapiDerivedMetrics(job_id, time_series=True, start=start, end=end)
+            events, mins, maxs, stats = self.getPapiRankStats(xfrm, job)
+            rows = []
+            for name in events:
+                row = []
+                row.append(name)
+                row.append(np.nan_to_num(mins.array(name+'_min')[0]))
+                row.append(np.nan_to_num(mins.array(name+'_min_rank')[0]))
+                row.append(np.nan_to_num(maxs.array(name+'_max')[0]))
+                row.append(np.nan_to_num(maxs.array(name+'_max_rank')[0]))
+                row.append(np.nan_to_num(stats.array(name+'_mean')[0]))
+                row.append(np.nan_to_num(stats.array(name+'_std')[0]))
+                rows.append(row)
+            result["rows"] = rows
+            result["type"] = "table"
+            res = [ result ]
+            return res
         except Exception as e:
-            exc_a, exc_b, exc_tb = sys.exc_info()
-            log.write('IndexAttrs Err: '+repr(e)+' '+repr(exc_tb.tb_lineno))
-            return { 'IndexAttrs Err ': repr(e)+' '+repr(exc_tb.tb_lineno) }
-'''
+            a, b, c = sys.exc_info()
+            log.write('getPapiSumTable Err: '+str(e)+' '+str(c.tb_lineno))
+            return None
+
+    def papiGetLikeJobs(self, job_id, start, end):
+        """Return jobs similar to requested job_id based on similar instance data"""
+        try:
+            src = SosDataSource()
+            src.config(cont=self.cont)
+            src.select(['inst_data'],
+                        from_ = [ 'kokkos_app'],
+                        where = [
+                            [ 'job_id', Sos.COND_EQ, job_id ]
+                        ],
+                        order_by = 'job_comp_time',
+            )
+            res = src.get_results()
+            if res is None:
+                return None
+            result = {}
+            jobData = SosDataSource()
+            jobData.config(cont=self.cont)
+            where = [
+                [ 'inst_data' , Sos.COND_EQ, res.array('inst_data')[0] ]
+            ]
+            jobData.select([ 'job_id', 'user_id', 'job_name' ],
+                            from_ = [ 'kokkos_app' ],
+                            where = where,
+                            order_by = 'inst_job_app_time',
+                            unique = True
+            )
+            res = jobData.get_results()
+            result["columns"] = [ { "text" : "Job Id" }, { "text" : "User Id" }, { "text" : "Name" } ]
+            result["rows"] = res.tolist()
+            result["type"] = "table"
+            return [ result ]
+        except Exception as e:
+            a, b, c = sys.exc_info()
+            log.write('PapiLikeJobs '+str(e)+' '+str(c.tb_lineno))
+            return None
+
+    def getMeanPapiRankTable(self, job_id, start, end):
+        """Return mean papi metrics across ranks for a given job_id"""
+        if not job_id:
+            log.write('No job_id')
+            return [ { "columns" : [{"text":"No Job Id specified"}], "rows" : [], "type" : "table" } ]
+        xfrm, job = self.getPapiDerivedMetrics(job_id, time_series=True, start=start, end=end)
+        if not xfrm:
+            return [ { "columns" : [], "rows" : [], "type" : "table" } ]
+        xfrm.push(job)
+        idx = job.series.index('tot_ins')
+        series = job.series[idx:]
+        xfrm.mean(series, group_name='rank', keep=job.series[0:idx-1], xfrm_suffix='')
+        job = xfrm.pop()
+        result = {}
+        rows = []
+        columns = []
+        series_names = [ 'timestamp', 'job_id', 'component_id',
+                         'rank',
+                         'cpi', 'uopi',
+                         'l1_miss_rate', 'l1_miss_ratio',
+                         'l2_miss_rate', 'l2_miss_ratio',
+                         'l3_miss_rate', 'l3_miss_ratio',
+                         'fp_rate', 'branch_rate',
+                         'load_rate', 'store_rate' ]
+        idx = series_names.index('timestamp')
+        del series_names[idx]
+        idx = series_names.index('job_id')
+        del series_names[idx]
+        idx = series_names.index('component_id')
+        del series_names[idx]
+        for ser in series_names:
+            columns.append({"text": ser})
+        result['columns'] = columns
+        for i in range(0, job.series_size):
+            row = []
+            for col in series_names:
+                row.append(np.nan_to_num(job.array(col)[i]))
+            rows.append(row)
+        result["rows"] = rows
+        result["type"] = "table"
+        if not result:
+            return [ { "columns" : [], "rows" : [], "type" : "table" } ]
+        return [ result ]
+
+    def getPapiDerivedMetrics(self, job_id, time_series=False, start=None, end=None):
+        """Calculate derived papi metrics for a given job_id"""
+        try:
+            src = SosDataSource()
+            src.config(cont=self.cont)
+            src.select(
+                [ 'PAPI_TOT_INS[timestamp]',
+                  'PAPI_TOT_INS[component_id]',
+                  'PAPI_TOT_INS[job_id]',
+                  'PAPI_TOT_INS[rank]' ] + event_name_map.keys(),
+                       from_    = event_name_map.keys(),
+                       where    = [ [ 'job_id', Sos.COND_EQ, int(job_id) ]
+                                ],
+                       order_by = 'job_rank_time')
+
+            xfrm = Transform(src, None)
+            res = xfrm.begin()
+            if res is None:
+                # Job was too short to record data
+                log.write('getPapiDerivedMetrics: no data for job_id {0}'.format(job_id))
+                return (None, None)
+
+            while res is not None and res.get_series_size() == 8192:
+                res = xfrm.next(count=8192)
+                if res is not None:
+                    # concatenate TOP and TOP~1
+                    xfrm.concat()
+
+            # result now on top of stack
+            result = xfrm.pop()                  # result on top
+            # "Normalize" the event names
+            for name in event_name_map:
+                result.rename(name, event_name_map[name])
+
+            derived_names = [ "tot_ins", "tot_cyc", "ld_ins", "sr_ins", "br_ins",
+                              "fp_ops", "l1_icm", "l1_dcm", "l2_ica", "l2_tca",
+                              "l2_tcm", "l3_tca", "l3_tcm" ]
+
+            xfrm.push(result)
+            job = xfrm.pop()
+
+            # cpi = tot_cyc / tot_ins
+            job <<= job['tot_cyc'] / job['tot_ins'] >> 'cpi'
+
+            # memory accesses
+            mem_acc = job['ld_ins'] + job['sr_ins'] >> 'mem_acc'
+
+            # uopi = (ld_ins + sr_ins) / tot_ins
+            job <<= mem_acc / job['tot_ins'] >> 'uopi'
+
+            # l1_miss_rate = (l1_icm + l1_dcm) / tot_ins
+            l1_tcm = job['l1_icm'] + job['l1_dcm']
+            job <<=  l1_tcm / job['tot_ins'] >> 'l1_miss_rate'
+
+            # l1_miss_ratio = (l1_icm + l1_dcm) / (ld_ins + sr_ins)
+            job <<= l1_tcm / mem_acc >> 'l1_miss_ratio'
+
+            # l2_miss_rate = l2_tcm / tot_ins
+            job <<= job['l2_tcm'] / job['tot_ins'] >> 'l2_miss_rate'
+
+            # l2_miss_ratio = l2_tcm / mem_acc
+            job <<= job['l2_tcm'] / mem_acc >> 'l2_miss_ratio'
+
+            # l3_miss_rate = l3_tcm / tot_ins
+            job <<= job['l3_tcm'] / job['tot_ins'] >> 'l3_miss_rate'
+
+            # l3_miss_ratio = l3_tcm / mem_acc
+            job <<= job['l3_tcm'] / mem_acc >> 'l3_miss_ratio'
+
+            # l2_bandwidth = l2_tca * 64e-6
+            job <<= job['l2_tca'] * 64e-6 >> 'l2_bw'
+
+            # l3_bandwidth = (l3_tca) * 64e-6
+            job <<= job['l3_tca'] * 64e-6 >> 'l3_bw'
+
+            # floating_point
+            job <<= job['fp_ops'] / job['tot_ins'] >> 'fp_rate'
+
+            # branch
+            job <<= job['br_ins'] / job['tot_ins'] >> 'branch_rate'
+
+            # load
+            job <<= job['ld_ins'] / job['tot_ins'] >> 'load_rate'
+
+            # store
+            job <<= job['sr_ins'] / job['tot_ins'] >> 'store_rate'
+
+            return (xfrm, job)
+
+        except Exception as e:
+            a, b, c = sys.exc_info()
+            log.write('derivedMetrics '+str(e)+' '+str(c.tb_lineno))
+            return None
+
+    def getPapiRankStats(self, xfrm, job):
+        try:
+            """Return min/max/standard deviation/mean for papi derived metrics"""
+
+            stats = DataSet()
+            xfrm.push(job)
+            events = job.series
+            idx = events.index('rank')
+            events = events[idx+1:]
+            # compute the rank containing the minima for each event
+            mins = DataSet()
+            for name in events:
+                xfrm.dup()
+                xfrm.min([ name ], group_name='rank')
+                xfrm.minrow(name+'_min')
+                xfrm.top().rename('rank', name + '_min_rank')
+                mins.append_series(xfrm.pop())
+
+            # compute the rank containing the maxima for each event
+            maxs = DataSet()
+            for name in events:
+                xfrm.dup()
+                xfrm.max([ name ], group_name='rank')
+                xfrm.maxrow(name+'_max')
+                xfrm.top().rename('rank', name + '_max_rank')
+                maxs.append_series(xfrm.pop())
+
+            # compute the standard deviation
+            xfrm.dup()
+            xfrm.std(events)
+            stats.append_series(xfrm.pop())
+
+            # mean
+            xfrm.mean(events)
+            stats.append_series(xfrm.pop())
+
+            return (events, mins, maxs, stats) 
+        except Exception as e:
+            a, b, c = sys.exc_info()
+            log.write('papiRankStats '+str(e)+' '+str(c.tb_lineno))
+            return (None, None, None, None)
+
+class Annotations(object):
+    def __init__(self, cont):
+        self.cont = cont
+
+    def getJobMarkers(self, start, end, jobId=None, compId=None):
+        """Query Job Marker annotations
+
+        Positional Parameters:
+        -- The start of the date/time range
+        -- The end of the date/time range
+
+        Keyword Parameters:
+        jobId - Show only markers for the specified job
+        compId - Show only markers for the specified component
+        """
+        src = SosDataSource()
+        src.config(cont=self.cont)
+        by = 'comp_time'
+        if jobId != None:
+            # ignore the start/end time for the job markers
+            jobId = int(jobId)
+            where = [ [ 'job_id', Sos.COND_EQ, jobId ] ]
+            by = 'job_rank_time'
+        elif compId != None:
+            where = [
+                [ 'component_id', Sos.COND_EQ, compId ],
+                [ 'timestamp', Sos.COND_GE, start ],
+                [ 'timestamp', Sos.COND_LE, end ],
+            ]
+        else:
+            where = [
+                [ 'timestamp', Sos.COND_GE, start ],
+                [ 'timestamp', Sos.COND_LE, end ],
+            ]
+            by = 'time_job'
+
+        src.select([ 'job_id', 'job_start', 'job_end' ],
+                       from_ = [ 'mt-slurm' ],
+                       where = where,
+                       order_by = by
+                   )
+        x = Transform(src, None, limit=12384)
+        res = x.begin()
+        if not res:
+            return res
+        # x.top().show()
+        result = x.dup()
+        x.min([ 'job_start' ], group_name='job_id', xfrm_suffix='')
+        result.concat(x.pop())
+        x.max([ 'job_end' ], group_name='job_id', xfrm_suffix='')
+        result.concat(x.pop())
+        nda = result.array('job_start')
+        nda *= 1000
+        nda1 = result.array('job_end')
+        nda1 *= 1000
+        return result

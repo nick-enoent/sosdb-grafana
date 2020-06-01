@@ -15,14 +15,19 @@ AC_SUBST(prefix)
 AC_SUBST(distdir)
 AC_SUBST(gplugin)
 
+AC_ARG_ENABLE([baler],
+[  --enable-baler],
+[case "${enableval}" in
+  yes) baler=true ;;
+  no)  baler=false ;;
+  *) AC_MSG_ERROR([bad value ${enableval} for --enable-baler]) ;;
+esac],[baler=false])
+AM_CONDITIONAL([BALER], [test x$baler = xtrue])
+
 AC_CONFIG_FILES([
         Makefile
         sosgui/Makefile
         grafana/Makefile
         sosds/Makefile
-        sosds/dist/Makefile
-        sosds/dist/css/Makefile
-        sosds/dist/img/Makefile
-        sosds/dist/partials/Makefile
         ])
 AC_OUTPUT
