@@ -111,6 +111,7 @@ export class SosDatasource {
 		schema: this.templateSrv.replace(target.schema),
 		job_id: this.templateSrv.replace(target.job_id),
 		comp_id: this.templateSrv.replace(target.comp_id),
+                user_name: this.templateSrv.replace(target.user_name),
 		query_type: this.templateSrv.replace(target.query_type) || 'metrics',
 		format: this.templateSrv.replace(target.format),
                 analysis: this.templateSrv.replace(target.analysis),

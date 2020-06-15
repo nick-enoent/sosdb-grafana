@@ -158,6 +158,16 @@ def query(request):
                 jobId = int(target['job_id'])
         else:
             jobId = 0
+        try:
+            if 'user_name' in target:
+                if len(target['user_name']) != 0:
+                    user_name = target['user_name']
+                    pw = pwd.getpwnam(user_name)
+                    user_id = pw.pw_uid
+                else:
+                    user_id = 0
+        except:
+            user_id = 0
         if 'comp_id' in target:
             compId = str(target['comp_id'])
             if ('{' in compId or ',' in compId):
@@ -186,9 +196,9 @@ def query(request):
                     class_ = getattr(module, analysis)
                     model = class_(cont, int(startS), int(endS),
                                    schema=schemaName, maxDataPoints=maxDataPoints)
-                    res = model.get_data(metricNames, jobId, params)
-                    fmt = DataSetFormatter(res, fmt)
-                    res = fmt.ret_json()
+                    res = model.get_data(metricNames, jobId, user_id, params)
+                    fmtr = DataSetFormatter(res, fmt)
+                    res = fmtr.ret_json()
                 else:
                     res = None
                 if res is None:
