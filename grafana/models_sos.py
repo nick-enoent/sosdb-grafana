@@ -276,7 +276,7 @@ class Query(object):
             src.select([ 'component_id'],
                 from_ = [ self.schemaName ],
                 where = [ [ 'job_id', Sos.COND_EQ, jobId ] ],
-                order_by = 'job_comp_time'
+                order_by = 'job_time_comp'
             )
             comps = src.get_results(limit=maxDataPoints)
             if not comps:
