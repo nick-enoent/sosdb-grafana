@@ -5,7 +5,7 @@ from builtins import object
 from django.contrib.auth import authenticate, login
 from django.shortcuts import render
 from django.http import HttpResponse, Http404, HttpResponseRedirect, QueryDict
-from graf_analysis.grafanaFormatter import DataSetFormatter, DataFrameFormatter
+from graf_analysis import grafanaFormatter
 from sosgui import _log, settings
 from sosdb import Sos
 import traceback as tb
@@ -197,10 +197,15 @@ def query(request):
                     model = class_(cont, int(startS), int(endS),
                                    schema=schemaName, maxDataPoints=maxDataPoints)
                     res = model.get_data(metricNames, jobId, user_id, params)
-                    if type(res).__module__ == 'sosdb.DataSet':
-                        fmtr = DataSetFormatter(res, fmt)
-                    elif type(res).__module__ == 'pandas.core.frame':
-                        fmtr = DataFrameFormatter(res, fmt)
+
+                    # Get formatter module
+                    fmtr_module = importlib.import_module('graf_analysis.'+fmt+'_formatter')
+                    fmtr_class = getattr(fmtr_module, fmt+'_formatter')
+                    if type(res).__module__ == 'sosdb.DataSet' or type(res).__module__ == 'pandas.core.frame':
+                        fmtr = fmtr_class(res)
+                    else:
+                        return HttpResponse(json.dumps(res, default=converter),
+                                            content_type='application/json')
                     res = fmtr.ret_json()
                 else:
                     res = None
