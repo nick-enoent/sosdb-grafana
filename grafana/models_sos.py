@@ -372,7 +372,7 @@ class Query(object):
                            [ 'timestamp', Sos.COND_GE, start ],
                            [ 'timestamp', Sos.COND_LE, end ]
                        ],
-                       order_by = "time_comp"
+                       order_by = "time_job_comp"
             )
         res = src.get_results()
         return res

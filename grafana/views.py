@@ -185,6 +185,7 @@ def query(request):
             query_type = target['query_type']
         if query_type == 'analysis':
             try:
+                res = None
                 if 'analysis' in target:
                     analysis = target['analysis']
                     if 'extra_params' in target:
@@ -199,25 +200,18 @@ def query(request):
                     res = model.get_data(metricNames, jobId, user_id, params)
 
                     # Get formatter module
-                    fmtr_module = importlib.import_module('graf_analysis.'+fmt+'_formatter')
-                    fmtr_class = getattr(fmtr_module, fmt+'_formatter')
-                    if type(res).__module__ == 'sosdb.DataSet' or type(res).__module__ == 'pandas.core.frame':
-                        fmtr = fmtr_class(res)
-                    else:
-                        return HttpResponse(json.dumps(res, default=converter),
-                                            content_type='application/json')
-                    res = fmtr.ret_json()
-                else:
-                    res = None
-                if res is None:
-                    res = [ {"columns" : [], "rows" : [], "type" : "table" } ]
+                fmtr_module = importlib.import_module('graf_analysis.'+fmt+'_formatter')
+                fmtr_class = getattr(fmtr_module, fmt+'_formatter')
+                fmtr = fmtr_class(res)
+                res = fmtr.ret_json()
                 close_container(cont)
                 return HttpResponse(json.dumps(res, default=converter),
                                     content_type='application/json')
             except Exception as e:
                 a, b, c = sys.exc_info()
                 log.write(str(e)+' '+str(c.tb_lineno))
-                close_container(cont)
+                if cont:
+                    close_container(cont)
                 return HttpResponse(json.dumps([ {"columns" : [{ "text" : str(e) }],
                                     "rows" : [[]], "type" : "table" } ]),
                                     content_type='application/json')
@@ -231,16 +225,18 @@ def query(request):
             if fmt == 'table':
                 result = None
                 columns = []
-                f = DataSetFormatter(result, fmt)
                 result = model.getTable(index,
                                         metricNames,
                                         start, end)
                 if result is None:
                     res_list = [ {"columns" : [], "rows" : [], "type" : "table" } ]
-                res_list =  f.ret_json()
+                fmtr_module = importlib.import_module('graf_analysis.'+fmt+'_formatter')
+                fmtr_class = getattr(fmtr_module, fmt+'_formatter')
+                fmtr = fmtr_class(res)
+                res_list =  fmtr.ret_json()
             elif fmt == 'time_series':
-                startS = startS - (intervalMs//1000)
-                endS = endS + (intervalMs//1000)
+                startS = startS - (intervalMs/1000)
+                endS = endS + (intervalMs/1000)
                 result = model.getCompTimeseries(compId,
                                                  metricNames,
                                                  int(startS), int(endS),
@@ -263,7 +259,7 @@ def query(request):
     except Exception as e:
         log.write(tb.format_exc())
         log.write(str(e))
-        if cont is not None:
+        if cont:
             close_container(cont)
         return HttpResponse(json.dumps([]), content_type='application/json')
 
