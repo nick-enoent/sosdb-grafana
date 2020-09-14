@@ -5,13 +5,17 @@
       <label class="gf-form-label query-keyword width-8">
         Format
       </label>
-        <div class="gf-form-select-wrapper">
+      <input type="text" class="gf-form-input" spellcheck="false"
+             ng-model="ctrl.target.format" placeholder="time_series"
+             data-min-length=0 data-items=100 ng-blur="ctrl.onChangeInterval()">
+      </input>
+      <!--
           <select ng-model="ctrl.target.format" class="gf-form-input" placeholder="format"
     	          ng-options="qt as qt for qt in [ 'time_series', 'table' ]"
                   data-min-length=0 data-items=100
                   ng-blur="ctrl.onChangeInternal()">
           </select>
-        </div>
+      -->
     </div>
     <div class="gf-form max-width-20">
       <label class="gf-form-label query-keyword width-8">
@@ -89,7 +93,7 @@
     <div class="gf-form max-width-20">
       <label class="gf-form-label query-keyword width-8">Analysis</label>
       <input type="text" class="gf-form-input" spellcheck="false" ng-model="ctrl.target.analysis"
-                                               placeholder="extra parameters"
+                                               placeholder="analysis module"
                                                data-min-length=0 data-items=100
                                                ng-blur="ctrl.onChangeInternal()">
       </input>
