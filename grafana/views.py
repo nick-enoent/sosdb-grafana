@@ -152,10 +152,12 @@ def query(request):
             if 'metric' in scopedVars:
                 metric = scopedVars['metric']
                 metricNames = [ str(metric['text' ]) ]
-        index = 'job_comp_time'
+        index = 'time_job_comp'
         if 'job_id' in target:
             if target['job_id'] is not '' or None:
                 jobId = int(target['job_id'])
+            else:
+                jobId = 0
         else:
             jobId = 0
         try:
@@ -229,10 +231,10 @@ def query(request):
                                         metricNames,
                                         start, end)
                 if result is None:
-                    res_list = [ {"columns" : [], "rows" : [], "type" : "table" } ]
+                    result = [ {"columns" : [], "rows" : [], "type" : "table" } ]
                 fmtr_module = importlib.import_module('graf_analysis.'+fmt+'_formatter')
                 fmtr_class = getattr(fmtr_module, fmt+'_formatter')
-                fmtr = fmtr_class(res)
+                fmtr = fmtr_class(result)
                 res_list =  fmtr.ret_json()
             elif fmt == 'time_series':
                 startS = startS - (intervalMs/1000)
@@ -253,7 +255,7 @@ def query(request):
             else:
                 res_list = [ { "target" : "error",
                                "datapoints" : "unrecognized format {0}".format(fmt) } ]
-        res_list = json.dumps(res_list)
+        res_list = json.dumps(res_list, default=converter)
         close_container(cont)
         return HttpResponse(res_list, content_type='application/json')
     except Exception as e:

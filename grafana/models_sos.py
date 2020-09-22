@@ -1,7 +1,3 @@
-from __future__ import division
-from __future__ import absolute_import
-from builtins import str
-from builtins import object
 from django.db import models
 import datetime as dt
 import time
@@ -13,7 +9,6 @@ from graf_analysis.grafanaAnalysis import papiAnalysis
 from . import views
 from numsos.Transform import Transform
 from sosdb.DataSet import DataSet
-import time
 import numpy as np
 import pandas as pd
 
@@ -327,27 +322,9 @@ class Query(object):
                        )
                 inp = None
                 time_delta = end - start
-                res = src.get_results(inputer=inp, limit=maxDataPoints)
+                res = src.get_results(inputer=inp, limit=1000000)
                 if res is None:
                     continue
-                if len(res.array(metric)) >  maxDataPoints:
-                    if time_delta > maxDataPoints:
-                        time_delta=maxDataPoints
-                    # set index of DATAFRAME to timestamp
-                    series = pd.DataFrame(res.array(metric), index=res.array('timestamp'))
-                    rs = series.resample('S').mean()
-                    ts = rs.index
-                    i = 0
-                    tstamps = []
-                    while i < ts.size:
-                        ts = pd.Timestamp(ts[i])
-                        ts = np.int_(ts.timestamp()*1000)
-                        tstamps.append(ts)
-                        i += 1
-                    res = DataSet()
-                    res.append_array(len(rs.values.flatten()), metric, rs.values)
-                    res.append_array(len(tstamps), 'timestamp', tstamps)
-
                 if res is None:
                     return None
                 result.append({ "comp_id" : comp_id, "metric" : metric, "datapoints" :
