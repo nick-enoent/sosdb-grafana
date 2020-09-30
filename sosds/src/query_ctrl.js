@@ -18,6 +18,8 @@ export class SosDatasourceQueryCtrl extends QueryCtrl {
         this.target.schema = this.target.schema;
         this.target.job_id = this.target.job_id || 0;
         this.target.comp_id = this.target.comp_id || 0;
+        this.target.user_name = this.target.user_name;
+        this.target.prdcr_name = this.target.prdcr_name;
         this.target.query_type = this.target.query_type || 'metrics';
         this.target.analysis = this.target.analysis;
         this.target.format = this.target.format || 'time_series';

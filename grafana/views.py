@@ -1,15 +1,19 @@
+from __future__ import absolute_import
+from builtins import str
+from builtins import range
+from builtins import object
 from django.contrib.auth import authenticate, login
 from django.shortcuts import render
 from django.http import HttpResponse, Http404, HttpResponseRedirect, QueryDict
-from graf_analysis.grafanaFormatter import DataSetFormatter
-from sosgui import logging, settings
+from graf_analysis import grafanaFormatter
+from sosgui import _log, settings
 from sosdb import Sos
 import traceback as tb
 import datetime as dt
 import _strptime
 import time
 import sys
-import models_sos
+from . import models_sos
 import numpy as np
 import importlib
 
@@ -19,12 +23,28 @@ except:
     pass
 import json
 
-log = logging.MsgLog("Grafana Views ")
+log = _log.MsgLog('grafana.views: ')
+
+def converter(obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, dt.datetime):
+            return obj.__str__()
 
 def get_container(cont_name):
-    path = settings.SOS_ROOT + '/' + cont_name
-    cont = Sos.Container(path)
-    return cont
+    try:
+        global log
+        log = _log.MsgLog('GrafanaViews')
+        path = settings.SOS_ROOT + '/' + cont_name
+        cont = Sos.Container(path)
+        return cont
+    except:
+        cont = None
+        return cont
 
 def close_container(cont):
     cont.close()
@@ -132,12 +152,24 @@ def query(request):
             if 'metric' in scopedVars:
                 metric = scopedVars['metric']
                 metricNames = [ str(metric['text' ]) ]
-        index = 'job_comp_time'
+        index = 'time_job_comp'
         if 'job_id' in target:
             if target['job_id'] is not '' or None:
                 jobId = int(target['job_id'])
+            else:
+                jobId = 0
         else:
             jobId = 0
+        try:
+            if 'user_name' in target:
+                if len(target['user_name']) != 0:
+                    user_name = target['user_name']
+                    pw = pwd.getpwnam(user_name)
+                    user_id = pw.pw_uid
+                else:
+                    user_id = 0
+        except:
+            user_id = 0
         if 'comp_id' in target:
             compId = str(target['comp_id'])
             if ('{' in compId or ',' in compId):
@@ -155,6 +187,7 @@ def query(request):
             query_type = target['query_type']
         if query_type == 'analysis':
             try:
+                res = None
                 if 'analysis' in target:
                     analysis = target['analysis']
                     if 'extra_params' in target:
@@ -166,35 +199,26 @@ def query(request):
                     class_ = getattr(module, analysis)
                     model = class_(cont, int(startS), int(endS),
                                    schema=schemaName, maxDataPoints=maxDataPoints)
-                    res = model.get_data(metricNames, jobId, params)
-                    fmt = DataSetFormatter(res, fmt)
-                    res = fmt.ret_json()
-                else:
-                    res = None
-                if res is None:
-                    res = [ {"columns" : [], "rows" : [], "type" : "table" } ]
+                    res = model.get_data(metricNames, jobId, user_id, params)
+
+                    # Get formatter module
+                fmtr_module = importlib.import_module('graf_analysis.'+fmt+'_formatter')
+                fmtr_class = getattr(fmtr_module, fmt+'_formatter')
+                fmtr = fmtr_class(res)
+                res = fmtr.ret_json()
                 close_container(cont)
-                return HttpResponse(json.dumps(res), content_type='application/json')
+                return HttpResponse(json.dumps(res, default=converter),
+                                    content_type='application/json')
             except Exception as e:
                 a, b, c = sys.exc_info()
                 log.write(str(e)+' '+str(c.tb_lineno))
+                if cont:
+                    close_container(cont)
                 return HttpResponse(json.dumps([ {"columns" : [{ "text" : str(e) }],
                                     "rows" : [[]], "type" : "table" } ]),
                                     content_type='application/json')
         model = models_sos.Query(cont, schemaName, index)
-        if query_type == 'job_table':
-            try:
-                columns, rows = model.getJobTable(jobId, start, end)
-                res_list = [ { "columns" : columns, "rows" : rows, "type": "table" } ]
-            except Exception as e:
-                a, b, c = sys.exc_info()
-                log.write(str(e)+' '+str(c.tb_lineno))
-                res_list = [ { "columns" : [], "rows" : [], "type": "table" } ]
-        elif query_type == 'papi_job_summary':
-            res_list = model.getPapiSumTable(jobId, int(startS), int(endS))
-        elif query_type == 'papi_rank_table':
-            res_list = model.getMeanPapiRankTable(jobId, int(startS), int(endS))
-        elif query_type == 'papi_timeseries':
+        if query_type == 'papi_timeseries':
             res_list = model.getPapiTimeseries(metricNames, jobId, int(startS),
                                                int(endS), intervalMs, maxDataPoints)
         elif query_type == 'like_jobs':
@@ -203,13 +227,15 @@ def query(request):
             if fmt == 'table':
                 result = None
                 columns = []
-                f = DataSetFormatter(result, fmt)
                 result = model.getTable(index,
                                         metricNames,
                                         start, end)
                 if result is None:
-                    res_list = [ {"columns" : [], "rows" : [], "type" : "table" } ]
-                res_list =  f.ret_json()
+                    result = [ {"columns" : [], "rows" : [], "type" : "table" } ]
+                fmtr_module = importlib.import_module('graf_analysis.'+fmt+'_formatter')
+                fmtr_class = getattr(fmtr_module, fmt+'_formatter')
+                fmtr = fmtr_class(result)
+                res_list =  fmtr.ret_json()
             elif fmt == 'time_series':
                 startS = startS - (intervalMs/1000)
                 endS = endS + (intervalMs/1000)
@@ -229,12 +255,14 @@ def query(request):
             else:
                 res_list = [ { "target" : "error",
                                "datapoints" : "unrecognized format {0}".format(fmt) } ]
-        res_list = json.dumps(res_list)
+        res_list = json.dumps(res_list, default=converter)
         close_container(cont)
         return HttpResponse(res_list, content_type='application/json')
     except Exception as e:
         log.write(tb.format_exc())
-        log.write(e.message)
+        log.write(str(e))
+        if cont:
+            close_container(cont)
         return HttpResponse(json.dumps([]), content_type='application/json')
 
 
@@ -304,8 +332,12 @@ def search(request):
 
     except Exception as e:
         a,b,c = sys.exc_info()
-        log.write("search: {0}".format(e.message)+' '+str(c.tb_lineno))
-        return HttpResponse(json.dumps(e.message.split(' ')),
+        log.write("search: {0}".format(e)+' '+str(c.tb_lineno))
+        if not cont:
+            pass
+        else:
+            close_container(cont)
+        return HttpResponse(json.dumps(["Exception Error:", str(e)]),
                             content_type='application/json')
 
 # ^annotations
@@ -353,14 +385,15 @@ def annotations(request):
             jid = jobs.array('job_id')
             jstart = jobs.array('job_start')
             jend = jobs.array('job_end')
+            jcomps = jobs.array('component_id')
             for row in range(0, jobs.get_series_size()):
                 entry = {}
                 job_id = str(jid[row])
-
+                comp_id = str(jcomps[row])
                 # Job start annotation
                 job_start = int(jstart[row])
                 entry['annotation'] = annotation
-                entry["text"] = 'Job ' + job_id + ' started'
+                entry["text"] = 'Job ' + job_id + ' started on node '+comp_id
                 entry["time"] = job_start
                 entry["title"] = "Job Id " + job_id
                 annotes.append(entry)
@@ -370,7 +403,7 @@ def annotations(request):
                 if job_end > job_start:
                     entry = {}
                     entry['annotation'] = annotation
-                    entry["text"] = 'Job ' + job_id + ' finished'
+                    entry["text"] = 'Job ' + job_id + ' finished on node '+comp_id
                     entry["time"] = job_end
                     entry["title"] = "Job Id " + job_id
                 annotes.append(entry)
@@ -388,5 +421,6 @@ def annotations(request):
 
     except Exception as e:
         log.write(tb.format_exc())
-        log.write(e.message)
+        log.write(str(e))
+        close_container(cont)
         return HttpResponse(json.dumps(annotes), content_type='application/json')

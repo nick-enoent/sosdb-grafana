@@ -79,6 +79,8 @@ System.register(['app/plugins/sdk', './css/query-editor.css!'], function (_expor
                _this.target.schema = _this.target.schema;
                _this.target.job_id = _this.target.job_id || 0;
                _this.target.comp_id = _this.target.comp_id || 0;
+               _this.target.user_name = _this.target.user_name;
+               _this.target.prdcr_name = _this.target.prdcr_name;
                _this.target.query_type = _this.target.query_type || 'metrics';
                _this.target.analysis = _this.target.analysis;
                _this.target.format = _this.target.format || 'time_series';
