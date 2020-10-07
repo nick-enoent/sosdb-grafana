@@ -12,6 +12,16 @@ Install Dependencies:
     sosds (Grafana datasource for SOS)
     Grafana
 
+Install package from source
+===========================
+Sodb-grafana must be built with the same prefix as sosdb-ui
+
+./autogen.sh
+mkdir build
+cd build
+../configure --prefix=<default /var/www/ovis_web_svcs>
+make
+make install
 
 ## SOS JSON Datasource
 ========================
