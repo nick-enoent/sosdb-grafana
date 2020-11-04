@@ -159,7 +159,7 @@ System.register(["lodash"], function (_export, _context) {
 								comp_id: _this.templateSrv.replace(target.comp_id),
 								user_name: _this.templateSrv.replace(target.user_name),
 								query_type: _this.templateSrv.replace(target.query_type) || 'metrics',
-								format: _this.templateSrv.replace(target.format),
+								format: _this.templateSrv.replace(target.format) || 'time_series',
 								analysis: _this.templateSrv.replace(target.analysis),
 								extra_params: _this.templateSrv.replace(target.extra_params),
 								refId: target.refId,

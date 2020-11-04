@@ -1,10 +1,7 @@
-from __future__ import absolute_import
-from builtins import str
-from builtins import range
-from builtins import object
 from django.contrib.auth import authenticate, login
 from django.shortcuts import render
 from django.http import HttpResponse, Http404, HttpResponseRedirect, QueryDict
+from django.views import View
 from graf_analysis import grafanaFormatter
 from sosgui import _log, settings
 from sosdb import Sos
@@ -16,12 +13,12 @@ import sys
 from . import models_sos
 import numpy as np
 import importlib
+import json
 
 try:
     import models_baler
 except:
     pass
-import json
 
 log = _log.MsgLog('grafana.views: ')
 
@@ -109,162 +106,105 @@ class QueryParameters(object):
 # URL Handlers
 ########################################################################
 
+class grafanaView(View):
+    def __init__(self):
+        super().__init__()
+        self.req_handling = {
+            'analysis' : self.get_analysis,
+            'metrics'  : self.get_timeseries
+        }
+
+    def parse_params(self):
+        date_range = self.req['range']
+        start = parse_date_iso8601(date_range['from'])
+        end = parse_date_iso8601(date_range['to'])
+        self.startTS = int(start.strftime('%s'))
+        self.endTS = int(end.strftime('%s'))
+        self.intervalMs = self.req['intervalMs']
+        self.interval = self.req['interval']
+        self.maxDataPoints = self.req['maxDataPoints']
+        # Each target represents an independent query
+        self.targets = self.req['targets']
+
+    def post(self, request):
+        body = request.body
+        self.req = json.loads(body)
+        self.parse_params()
+        self.t_cnt = 0
+        res = []
+        self.cont = get_container(self.targets[self.t_cnt]['container'])
+        for target in self.targets:
+            result  = self.req_handling[target['query_type']]()
+            self.t_cnt += 1
+            if type(result) == list:
+                for _res in result:
+                    res.append(_res)
+            else:
+                res.append(result)
+        close_container(self.cont)
+        return HttpResponse(json.dumps(res, default=converter),
+                            content_type='application/json')
+
+    def get_uid(self):
+        if len(self.targets[self.t_cnt]['user_name']) != 0:
+            pw = pwd.getpwnam(self.targets[self.t_cnt]['user_name'])
+            user_id = pw.pw_uid
+        else:
+            user_id = 0
+        return user_id
+
+    def get_analysis(self):
+        try:
+            res = None
+            module = importlib.import_module('graf_analysis.'+ self.targets[self.t_cnt]['analysis'])
+            class_ = getattr(module, self.targets[self.t_cnt]['analysis'])
+            model = class_(self.cont, int(self.startTS), int(self.endTS),
+                           schema = self.targets[self.t_cnt]['schema'],
+                           maxDataPoints = self.maxDataPoints)
+            metrics = parse_glob(self.targets[self.t_cnt]['target'])
+            job_id = self.targets[self.t_cnt]['job_id']
+            res = model.get_data(metrics,
+                                 job_id=self.targets[self.t_cnt]['job_id'],
+                                 user_id=self.get_uid(),
+                                 params=self.targets[self.t_cnt]['extra_params'])
+
+            # Limit formatter to first query format in request
+            fmt = self.targets[0]['format']
+            # Get formatter module
+            fmtr_module = importlib.import_module('graf_analysis.'+fmt+'_formatter')
+            fmtr_class = getattr(fmtr_module, fmt+'_formatter')
+            fmtr = fmtr_class(res)
+            res = fmtr.ret_json()
+            return res
+
+        except Exception as e:
+            a, b, c = sys.exc_info()
+            log.write(str(e)+' '+str(c.tb_lineno))
+            res = [ {"columns" : [{ "text" : str(e) }] } ]
+            return res
+
+    def get_timeseries(self):
+        try:
+            metrics = parse_glob(self.targets[self.t_cnt]['target'])
+            model = models_sos.Query(self.cont,
+                                     self.targets[self.t_cnt]['schema'], index='time_job_comp')
+            res = model.getCompTimeseries(self.targets[self.t_cnt]['comp_id'],
+                                             metrics,
+                                             self.startTS, self.endTS,
+                                             self.intervalMs,
+                                             self.maxDataPoints, 
+                                             self.targets[self.t_cnt]['job_id'])
+            return res
+        except Exception as e:
+            a, b, c = sys.exc_info()
+            log.write(str(e)+' '+str(c.tb_lineno))
+            res = { "target" : str(e),  "datapoints" : [] }
+            return res
+
 # ^$
 def ok(request):
     log.write('ok')
     return HttpResponse(status=200)
-
-# ^query
-def query(request):
-    try:
-        a = dt.datetime.now()
-        body = request.body
-        req = json.loads(body)
-
-        date_range = req['range']
-        start = parse_date_iso8601(date_range['from'])
-        end = parse_date_iso8601(date_range['to'])
-        intervalMs = req['intervalMs']
-        interval = req['interval']
-        maxDataPoints = req['maxDataPoints']
-
-        startS = float(start.strftime('%s'))
-        endS = float(end.strftime('%s'))
-
-        startMs = startS * 1.0e3
-        endMs = endS * 1.0e3
-
-        # if end < start (e.g. 0) end is now, but clamp
-        # to display window
-        if endMs < startMs:
-            endMs = startMs + (intervalMs * maxDataPoints)
-        target = req['targets'][0]
-        cont_name = str(target['container'])
-        cont = get_container(cont_name)
-        if cont is None:
-            return HttpResponse("The container {0} could not be opened.".\
-                                format(cont_name),
-                                content_type="text/html")
-        schemaName = str(target['schema'])
-        metricNames = parse_glob(target['target'])
-        if 'scopedVars' in req:
-            scopedVars = req['scopedVars']
-            if 'metric' in scopedVars:
-                metric = scopedVars['metric']
-                metricNames = [ str(metric['text' ]) ]
-        index = 'time_job_comp'
-        if 'job_id' in target:
-            if target['job_id'] is not '' or None:
-                jobId = int(target['job_id'])
-            else:
-                jobId = 0
-        else:
-            jobId = 0
-        try:
-            if 'user_name' in target:
-                if len(target['user_name']) != 0:
-                    user_name = target['user_name']
-                    pw = pwd.getpwnam(user_name)
-                    user_id = pw.pw_uid
-                else:
-                    user_id = 0
-        except:
-            user_id = 0
-        if 'comp_id' in target:
-            compId = str(target['comp_id'])
-            if ('{' in compId or ',' in compId):
-                compId = parse_glob(compId)
-            else:
-                compId = int(compId)
-        else:
-            compId = None
-        res_list = []
-        if 'format' in target:
-            fmt = target['format']
-        else:
-            fmt = "time_series"
-        if 'query_type' in target:
-            query_type = target['query_type']
-        if query_type == 'analysis':
-            try:
-                res = None
-                if 'analysis' in target:
-                    analysis = target['analysis']
-                    if 'extra_params' in target:
-                        params = target['extra_params']
-                    else:
-                        params = None
-                    analysis = target['analysis']
-                    module = importlib.import_module('graf_analysis.'+analysis)
-                    class_ = getattr(module, analysis)
-                    model = class_(cont, int(startS), int(endS),
-                                   schema=schemaName, maxDataPoints=maxDataPoints)
-                    res = model.get_data(metricNames, jobId, user_id, params)
-
-                    # Get formatter module
-                fmtr_module = importlib.import_module('graf_analysis.'+fmt+'_formatter')
-                fmtr_class = getattr(fmtr_module, fmt+'_formatter')
-                fmtr = fmtr_class(res)
-                res = fmtr.ret_json()
-                close_container(cont)
-                return HttpResponse(json.dumps(res, default=converter),
-                                    content_type='application/json')
-            except Exception as e:
-                a, b, c = sys.exc_info()
-                log.write(str(e)+' '+str(c.tb_lineno))
-                if cont:
-                    close_container(cont)
-                return HttpResponse(json.dumps([ {"columns" : [{ "text" : str(e) }],
-                                    "rows" : [[]], "type" : "table" } ]),
-                                    content_type='application/json')
-        model = models_sos.Query(cont, schemaName, index)
-        if query_type == 'papi_timeseries':
-            res_list = model.getPapiTimeseries(metricNames, jobId, int(startS),
-                                               int(endS), intervalMs, maxDataPoints)
-        elif query_type == 'like_jobs':
-            res_list = model.papiGetLikeJobs(jobId, startS, endS)
-        elif query_type == 'metrics':
-            if fmt == 'table':
-                result = None
-                columns = []
-                result = model.getTable(index,
-                                        metricNames,
-                                        start, end)
-                if result is None:
-                    result = [ {"columns" : [], "rows" : [], "type" : "table" } ]
-                fmtr_module = importlib.import_module('graf_analysis.'+fmt+'_formatter')
-                fmtr_class = getattr(fmtr_module, fmt+'_formatter')
-                fmtr = fmtr_class(result)
-                res_list =  fmtr.ret_json()
-            elif fmt == 'time_series':
-                startS = startS - (intervalMs/1000)
-                endS = endS + (intervalMs/1000)
-                result = model.getCompTimeseries(compId,
-                                                 metricNames,
-                                                 int(startS), int(endS),
-                                                 intervalMs,
-                                                 maxDataPoints, jobId)
-                if result:
-                    for res in result:
-                        res_list.append({ 'target' : '[' + str(res['comp_id']) + ']'
-                                          + str(res['metric']),
-                                          'datapoints' : res['datapoints']})
-                else:
-                    res_list = [{ 'target' : str(metricNames),
-                                          'datapoints' : [] }]
-            else:
-                res_list = [ { "target" : "error",
-                               "datapoints" : "unrecognized format {0}".format(fmt) } ]
-        res_list = json.dumps(res_list, default=converter)
-        close_container(cont)
-        return HttpResponse(res_list, content_type='application/json')
-    except Exception as e:
-        log.write(tb.format_exc())
-        log.write(str(e))
-        if cont:
-            close_container(cont)
-        return HttpResponse(json.dumps([]), content_type='application/json')
-
 
 # ^search
 def search(request):

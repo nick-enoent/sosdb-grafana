@@ -113,7 +113,7 @@ export class SosDatasource {
 		comp_id: this.templateSrv.replace(target.comp_id),
                 user_name: this.templateSrv.replace(target.user_name),
 		query_type: this.templateSrv.replace(target.query_type) || 'metrics',
-		format: this.templateSrv.replace(target.format),
+		format: this.templateSrv.replace(target.format) || 'time_series',
                 analysis: this.templateSrv.replace(target.analysis),
                 extra_params: this.templateSrv.replace(target.extra_params),
 		refId: target.refId,

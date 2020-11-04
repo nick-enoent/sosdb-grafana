@@ -117,7 +117,7 @@ class Search(object):
                    where    = where,
                    order_by = 'timestamp'
         )
-        comps = src.get_results()
+        comps = src.get_df()
         if comps is None:
             return {0}
         comp_ids = np.unique(comps['component_id'])
@@ -144,11 +144,10 @@ class Search(object):
                    where    = where_,
                    order_by = 'time_job_comp'
         )
-        jobs = src.get_results(limit=8128)
+        jobs = src.get_df(limit=8128)
         if jobs is None:
             return {0}
         job_ids = np.unique(jobs['job_id'])
-        job_ids = jobs.array('job_id')
         result = {}
         for job_id in job_ids:
             result[str(int(job_id))] = int(job_id)
@@ -170,9 +169,9 @@ class Query(object):
                    where = [ [ 'job_id', Sos.COND_EQ, job_id ] ],
                    order_by = 'job_comp_time'
                    )
-        res = src.get_results(limit=4096)
+        res = src.get_df(limit=4096)
         if res:
-            ucomps = np.unique(res['component_id'].tolist())
+            ucomps = np.unique(res['component_id'])
             return ucomps
         return None
 
@@ -215,62 +214,14 @@ class Query(object):
             return ucomps
         return None
 
-    def getPapiTimeseries(self, metricNames, job_id,
-                          start, end, intervalMs, maxDataPoints):
-        """Return time series data for papi-events schema"""
-        papi_analysis = papiAnalysis(self.cont, start, end)
-        self.maxDataPoints = maxDataPoints
-        #src = SosDataSource()
-        #src.config(cont=self.cont)
-        result = []
-        if self.schemaName == 'kokkos_app':
-            for metric in metricNames:
-                papi_analysis.src.select([metric, 'start_time'],
-                    from_ = [ self.schemaName ],
-                    where = [
-                        [ 'start_time', Sos.COND_GE, start ]
-                    ],
-                    order_by = 'job_id'
-                )
-                res = papi_analysis.src.get_results()
-                l = res.series_size
-                result.append({"target" : metric, "datapoints" : res.tolist() })
-            return result
-        try:
-            if not job_id:
-                return [{ "target" : "Job Id required for papi_timeseries", datapoints : [] } ]
-            xfrm, job = papi_analysis.derived_metrics(job_id)
-            #xfrm, job = self.getPapiDerivedMetrics(job_id, time_series=True, start=start, end=end)
-            for metric in metricNames:
-                if metric in papi_analysis.event_name_map:
-                    metric = papi_analysis.event_name_map[metric]
-                datapoints = []
-                i = 0
-                while i < len(job.array(metric)):
-                    if i > 0:
-                        if job.array('rank')[i-1] != job.array('rank')[i]:
-                            result.append({"target" : '[Rank'+str(job.array('rank')[i-1])+']'+metric,
-                                           "datapoints" : datapoints })
-                            datapoints = []
-                    nda = np.array(job.array('timestamp'), dtype='double')
-                    dp = [ np.nan_to_num(job.array(metric)[i]), nda[i] // 1000 ]
-                    datapoints.append(dp)
-                    i += 1
-                result.append({"target" : '[Rank'+str(job.array('rank')[i-1])+']'+metric,
-                               "datapoints" : datapoints })
-            return result
-        except Exception as e:
-            a, b, c = sys.exc_info()
-            print('papi_timeseries '+str(e)+' '+str(c.tb_lineno))
-            #log.write('papi_timeseries '+str(e)+' '+str(c.tb_lineno))
-            return None
-
     def getCompTimeseries(self, compIds, metricNames,
                           start, end, intervalMs, maxDataPoints, jobId=0):
         """Return time series data for a particular component/s"""
         src = SosDataSource()
         src.config(cont=self.cont)
 
+        if type(metricNames) != list:
+            metricNames = [ metricNames ]
         result = []
         if compIds:
             if type(compIds) != list:
@@ -281,11 +232,11 @@ class Query(object):
                 where = [ [ 'job_id', Sos.COND_EQ, jobId ] ],
                 order_by = 'job_time_comp'
             )
-            comps = src.get_results(limit=maxDataPoints)
-            if not comps:
+            comps = src.get_df(limit=maxDataPoints)
+            if comps.empty:
                 compIds = np.zeros(1)
             else:
-                compIds = np.unique(comps['component_id'].tolist())
+                compIds = np.unique(comps['component_id'])
         else:
             src.select([ 'component_id' ],
                 from_ = [ self.schemaName ],
@@ -295,11 +246,11 @@ class Query(object):
                        ],
                        order_by = 'time_comp_job'
                    )
-            comps = src.get_results(limit=maxDataPoints)
-            if not comps:
+            comps = src.get_df(limit=maxDataPoints)
+            if comps.empty:
                 compIds = np.zeros(1)
             else:
-                compIds = np.unique(comps['component_id'].tolist())
+                compIds = np.unique(comps['component_id'])
         for comp_id in compIds:
             for metric in metricNames:
                 if comp_id != 0:
@@ -320,15 +271,13 @@ class Query(object):
                            where = where_,
                            order_by = self.index
                        )
-                inp = None
                 time_delta = end - start
-                res = src.get_results(inputer=inp, limit=1000000)
+                res = src.get_df(limit=100000)
+                res['timestamp'] = res['timestamp'].values.astype(np.int64) / int(1e6)
                 if res is None:
                     continue
-                if res is None:
-                    return None
-                result.append({ "comp_id" : comp_id, "metric" : metric, "datapoints" :
-                                res.tolist() })
+                result.append({ "target" : '['+str(comp_id)+']'+metric, "datapoints" :
+                                res.to_numpy().tolist() })
         return result
 
     def getTable(self, index, metricNames, start, end):
@@ -390,144 +339,6 @@ class Query(object):
             a, b, c = sys.exc_info()
             log.write('PapiLikeJobs '+str(e)+' '+str(c.tb_lineno))
             return None
-
-    '''
-    def getPapiDerivedMetrics(self, job_id, time_series=False, start=None, end=None):
-        """Calculate derived papi metrics for a given job_id"""
-        try:
-            src = SosDataSource()
-            src.config(cont=self.cont)
-            src.select(
-                [ 'PAPI_TOT_INS[timestamp]',
-                  'PAPI_TOT_INS[component_id]',
-                  'PAPI_TOT_INS[job_id]',
-                  'PAPI_TOT_INS[rank]' ] + list(event_name_map.keys()),
-                       from_    = list(event_name_map.keys()),
-                       where    = [ [ 'job_id', Sos.COND_EQ, int(job_id) ]
-                                ],
-                       order_by = 'job_rank_time')
-
-            xfrm = Transform(src, None)
-            res = xfrm.begin()
-            if res is None:
-                # Job was too short to record data
-                log.write('getPapiDerivedMetrics: no data for job_id {0}'.format(job_id))
-                return (None, None)
-
-            while res is not None and res.get_series_size() == 8192:
-                res = xfrm.next(count=8192)
-                if res is not None:
-                    # concatenate TOP and TOP~1
-                    xfrm.concat()
-
-            # result now on top of stack
-            result = xfrm.pop()                  # result on top
-            # "Normalize" the event names
-            for name in event_name_map:
-                result.rename(name, event_name_map[name])
-
-            derived_names = [ "tot_ins", "tot_cyc", "ld_ins", "sr_ins", "br_ins",
-                              "fp_ops", "l1_icm", "l1_dcm", "l2_ica", "l2_tca",
-                              "l2_tcm", "l3_tca", "l3_tcm" ]
-
-            xfrm.push(result)
-            job = xfrm.pop()
-
-            # cpi = tot_cyc / tot_ins
-            job <<= job['tot_cyc'] / job['tot_ins'] >> 'cpi'
-
-            # memory accesses
-            mem_acc = job['ld_ins'] + job['sr_ins'] >> 'mem_acc'
-
-            # uopi = (ld_ins + sr_ins) / tot_ins
-            job <<= mem_acc / job['tot_ins'] >> 'uopi'
-
-            # l1_miss_rate = (l1_icm + l1_dcm) / tot_ins
-            l1_tcm = job['l1_icm'] + job['l1_dcm']
-            job <<=  l1_tcm / job['tot_ins'] >> 'l1_miss_rate'
-
-            # l1_miss_ratio = (l1_icm + l1_dcm) / (ld_ins + sr_ins)
-            job <<= l1_tcm / mem_acc >> 'l1_miss_ratio'
-
-            # l2_miss_rate = l2_tcm / tot_ins
-            job <<= job['l2_tcm'] / job['tot_ins'] >> 'l2_miss_rate'
-
-            # l2_miss_ratio = l2_tcm / mem_acc
-            job <<= job['l2_tcm'] / mem_acc >> 'l2_miss_ratio'
-
-            # l3_miss_rate = l3_tcm / tot_ins
-            job <<= job['l3_tcm'] / job['tot_ins'] >> 'l3_miss_rate'
-
-            # l3_miss_ratio = l3_tcm / mem_acc
-            job <<= job['l3_tcm'] / mem_acc >> 'l3_miss_ratio'
-
-            # l2_bandwidth = l2_tca * 64e-6
-            job <<= job['l2_tca'] * 64e-6 >> 'l2_bw'
-
-            # l3_bandwidth = (l3_tca) * 64e-6
-            job <<= job['l3_tca'] * 64e-6 >> 'l3_bw'
-
-            # floating_point
-            job <<= job['fp_ops'] / job['tot_ins'] >> 'fp_rate'
-
-            # branch
-            job <<= job['br_ins'] / job['tot_ins'] >> 'branch_rate'
-
-            # load
-            job <<= job['ld_ins'] / job['tot_ins'] >> 'load_rate'
-
-            # store
-            job <<= job['sr_ins'] / job['tot_ins'] >> 'store_rate'
-
-            return (xfrm, job)
-
-        except Exception as e:
-            a, b, c = sys.exc_info()
-            log.write('derivedMetrics '+str(e)+' '+str(c.tb_lineno))
-            return None
-
-    def getPapiRankStats(self, xfrm, job):
-        try:
-            """Return min/max/standard deviation/mean for papi derived metrics"""
-
-            stats = DataSet()
-            xfrm.push(job)
-            events = job.series
-            idx = events.index('rank')
-            events = events[idx+1:]
-            # compute the rank containing the minima for each event
-            mins = DataSet()
-            for name in events:
-                xfrm.dup()
-                xfrm.min([ name ], group_name='rank')
-                xfrm.minrow(name+'_min')
-                xfrm.top().rename('rank', name + '_min_rank')
-                mins.append_series(xfrm.pop())
-
-            # compute the rank containing the maxima for each event
-            maxs = DataSet()
-            for name in events:
-                xfrm.dup()
-                xfrm.max([ name ], group_name='rank')
-                xfrm.maxrow(name+'_max')
-                xfrm.top().rename('rank', name + '_max_rank')
-                maxs.append_series(xfrm.pop())
-
-            # compute the standard deviation
-            xfrm.dup()
-            xfrm.std(events)
-            stats.append_series(xfrm.pop())
-
-            # mean
-            xfrm.mean(events)
-            stats.append_series(xfrm.pop())
-
-            return (events, mins, maxs, stats) 
-        except Exception as e:
-            a, b, c = sys.exc_info()
-            log.write('papiRankStats '+str(e)+' '+str(c.tb_lineno))
-            return (None, None, None, None)
-    '''
 
 class Annotations(object):
     def __init__(self, cont):
