@@ -6,7 +6,7 @@
         Format
       </label>
           <select ng-model="ctrl.target.format" class="gf-form-input" placeholder="format"
-    	          ng-options="qt as qt for qt in [ 'time_series', 'table' ]"
+    	          ng-options="qt as qt for qt in [ 'time_series', 'table', 'heatmap' ]"
                   data-min-length=0 data-items=100
                   ng-blur="ctrl.onChangeInternal()">
           </select>
