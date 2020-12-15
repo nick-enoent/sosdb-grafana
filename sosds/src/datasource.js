@@ -117,8 +117,7 @@ export class SosDatasource {
                 analysis: this.templateSrv.replace(target.analysis),
                 extra_params: this.templateSrv.replace(target.extra_params),
 		refId: target.refId,
-		hide: target.hide,
-		type: target.type || 'timeserie'
+		hide: target.hide
 	    };
 	});
 

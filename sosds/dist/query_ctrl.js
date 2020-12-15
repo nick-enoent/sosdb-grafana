@@ -73,17 +73,16 @@ System.register(['app/plugins/sdk', './css/query-editor.css!'], function (_expor
 
                _this.uiSegmentSrv = uiSegmentSrv;
 
-               _this.target.target = _this.target.target || '';
-               _this.target.type = _this.target.type || 'timeserie';
-               _this.target.container = _this.target.container || '';
-               _this.target.schema = _this.target.schema || '';
-               _this.target.job_id = _this.target.job_id || 0;
-               _this.target.comp_id = _this.target.comp_id || 0;
-               _this.target.user_name = _this.target.user_name || '';
+               _this.target.target = _this.target.target || null;
+               _this.target.container = _this.target.container || null;
+               _this.target.schema = _this.target.schema || null;
+               _this.target.job_id = _this.target.job_id || null;
+               _this.target.comp_id = _this.target.comp_id || null;
+               _this.target.user_name = _this.target.user_name || null;
                _this.target.query_type = _this.target.query_type || 'metrics';
-               _this.target.analysis = _this.target.analysis || '';
+               _this.target.analysis = _this.target.analysis || null;
                _this.target.format = _this.target.format || 'time_series';
-               _this.target.extra_params = _this.target.extra_params;
+               _this.target.extra_params = _this.target.extra_params || null;
 
                _this.panelCtrl.events.on('data-received', _this.onDataReceived.bind(_this), $scope);
                _this.panelCtrl.events.on('data-error', _this.onDataError.bind(_this), $scope);

@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ([2.69])
-AC_INIT([sosdb-grafana], 4.0.0, nick@ogc.us)
+AC_INIT([sosdb-grafana], 1.1.0, nick@ogc.us)
 AC_CONFIG_MACRO_DIR([m4])
 AM_CONFIG_HEADER(config.h)
 AM_INIT_AUTOMAKE([foreign])

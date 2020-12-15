@@ -125,6 +125,8 @@ class grafanaView(View):
         self.maxDataPoints = self.req['maxDataPoints']
         # Each target represents an independent query
         self.targets = self.req['targets']
+        # Limit formatter to first query format in request
+        self.fmt = self.targets[0]['format']
 
     def post(self, request):
         body = request.body
@@ -168,11 +170,9 @@ class grafanaView(View):
                                  user_id=self.get_uid(),
                                  params=self.targets[self.t_cnt]['extra_params'])
 
-            # Limit formatter to first query format in request
-            fmt = self.targets[0]['format']
             # Get formatter module
-            fmtr_module = importlib.import_module('graf_analysis.'+fmt+'_formatter')
-            fmtr_class = getattr(fmtr_module, fmt+'_formatter')
+            fmtr_module = importlib.import_module('graf_analysis.'+self.fmt+'_formatter')
+            fmtr_class = getattr(fmtr_module, self.fmt+'_formatter')
             fmtr = fmtr_class(res)
             res = fmtr.ret_json()
             return res
@@ -188,12 +188,27 @@ class grafanaView(View):
             metrics = parse_glob(self.targets[self.t_cnt]['target'])
             model = models_sos.Query(self.cont,
                                      self.targets[self.t_cnt]['schema'], index='time_job_comp')
-            res = model.getCompTimeseries(self.targets[self.t_cnt]['comp_id'],
-                                             metrics,
-                                             self.startTS, self.endTS,
-                                             self.intervalMs,
-                                             self.maxDataPoints, 
-                                             self.targets[self.t_cnt]['job_id'])
+            if self.targets[self.t_cnt]['extra_params'] == 'by_component':
+                res = model.getCompTimeseries(metrics,
+                                              start=self.startTS, end=self.endTS,
+                                              intervalMs=self.intervalMs,
+                                              maxDataPoints=self.maxDataPoints,
+                                              comp_id=self.targets[self.t_cnt]['comp_id'],
+                                              job_id=self.targets[self.t_cnt]['job_id']
+            )
+            else:
+                res = model.getTimeseries(metrics,
+                                          start=self.startTS, end=self.endTS,
+                                          intervalMs=self.intervalMs,
+                                          maxDataPoints=self.maxDataPoints,
+                                          comp_id=self.targets[self.t_cnt]['comp_id'],
+                                          job_id=self.targets[self.t_cnt]['job_id']
+            )
+            # Get formatter module
+            fmtr_module = importlib.import_module('graf_analysis.'+self.fmt+'_formatter')
+            fmtr_class = getattr(fmtr_module, self.fmt+'_formatter')
+            fmtr = fmtr_class(res)
+            res = fmtr.ret_json()
             return res
         except Exception as e:
             a, b, c = sys.exc_info()
