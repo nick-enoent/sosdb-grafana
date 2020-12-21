@@ -261,26 +261,26 @@ def search(request):
         if cont is None:
             raise ValueError("Error: The container {0} could not be opened.".format(cont_name))
 
-        model = models_sos.Search(cont)
         resp = {}
 
         schema = parms['schema']
         query = parms['query']
+        model = models_sos.Search(cont, schema)
         if query.lower() != "schema" and schema is None:
             if schema is None:
                 raise ValueError("Error: The 'schema' parameter is missing from the search.")
                 return HttpResponse(json.dumps(["Error", "Schema is required"]), content_type='application/json')
 
         if query.lower() == "schema":
-            resp = model.getSchema(cont)
+            resp = model.getSchema()
         elif query.lower() == "index":
-            resp = model.getIndices(cont, schema)
+            resp = model.getIndices()
         elif query.lower() == "metrics":
-            resp = model.getMetrics(cont, schema)
+            resp = model.getMetrics()
         elif query.lower() == "components":
-            resp = model.getComponents(cont, schema, start, end)
+            resp = model.getComponents(start, end)
         elif query.lower() == "jobs":
-            resp = model.getJobs(cont, schema, start, end)
+            resp = model.getJobs(start, end)
 
         close_container(cont)
         return HttpResponse(json.dumps(resp), content_type = 'application/json')

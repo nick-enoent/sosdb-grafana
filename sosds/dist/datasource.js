@@ -152,16 +152,16 @@ System.register(["lodash"], function (_export, _context) {
 						//remove placeholder targets
 						var targets = _.map(options.targets, function (target) {
 							return {
-								target: _this.templateSrv.replace(target.target),
-								container: _this.templateSrv.replace(target.container),
-								schema: _this.templateSrv.replace(target.schema),
-								job_id: _this.templateSrv.replace(target.job_id),
-								comp_id: _this.templateSrv.replace(target.comp_id),
-								user_name: _this.templateSrv.replace(target.user_name),
+								target: _this.templateSrv.replace(target.target) || null,
+								container: _this.templateSrv.replace(target.container) || null,
+								schema: _this.templateSrv.replace(target.schema) || null,
+								job_id: _this.templateSrv.replace(target.job_id) || null,
+								comp_id: _this.templateSrv.replace(target.comp_id) || null,
+								user_name: _this.templateSrv.replace(target.user_name) || null,
 								query_type: _this.templateSrv.replace(target.query_type) || 'metrics',
 								format: _this.templateSrv.replace(target.format) || 'time_series',
-								analysis: _this.templateSrv.replace(target.analysis),
-								extra_params: _this.templateSrv.replace(target.extra_params),
+								analysis: _this.templateSrv.replace(target.analysis) || null,
+								extra_params: _this.templateSrv.replace(target.extra_params) || null,
 								refId: target.refId,
 								hide: target.hide
 							};

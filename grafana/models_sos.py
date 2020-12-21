@@ -99,6 +99,7 @@ class GrafanaRequest:
 class Search(GrafanaRequest):
     def __init__(self, cont, schemaName, index='time_job_comp'):
         super().__init__(cont, schemaName, index)
+        self.schema = cont.schema_by_name(self.schema_name)
 
     def getSchema(self):
         self.schemas = {}
@@ -108,19 +109,17 @@ class Search(GrafanaRequest):
             schemas[name] = name
         return schemas
 
-    def getIndices(self, cont, schema_name):
-        schema = cont.schema_by_name(schema_name)
+    def getIndices(self):
         indices = {}
-        for attr in schema:
+        for attr in self.schema:
             if attr.is_indexed() == True:
                 name = attr.name()
                 indices[name] = name
         return indices
 
     def getMetrics(self, cont, schema_name):
-        schema = cont.schema_by_name(schema_name)
         attrs = {}
-        for attr in schema:
+        for attr in self.schema:
             if attr.type() != Sos.TYPE_JOIN:
                 name = attr.name()
                 attrs[name] = name
@@ -129,8 +128,7 @@ class Search(GrafanaRequest):
         return attrs
 
     def getComponents(self, cont, schema_name, start, end):
-        schema = cont.schema_by_name(schema_name)
-        attr = schema.attr_by_name("component_id")
+        attr = self.schema.attr_by_name("component_id")
         if attr is None:
             return {0}
         where = []
@@ -139,7 +137,7 @@ class Search(GrafanaRequest):
         if end > 0:
             where.append([ 'timestamp', Sos.COND_LE, end ])
         self.src.select([ 'component_id' ],
-                   from_    = [ schema_name ],
+                   from_    = [ self.schemaName ],
                    where    = where,
                    order_by = 'timestamp'
         )
@@ -154,8 +152,7 @@ class Search(GrafanaRequest):
 
     def getJobs(self, cont, schema_name, start, end):
         # method to retrieve unique job_ids
-        schema = cont.schema_by_name(schema_name)
-        attr = schema.attr_by_name("job_id")
+        attr = self.schema.attr_by_name("job_id")
         if attr is None:
             return None
         where_ = []
@@ -164,7 +161,7 @@ class Search(GrafanaRequest):
         if end > 0:
             where_.append([ 'timestamp', Sos.COND_LE, end ])
         self.src.select([ 'job_id' ],
-                        from_    = [ schema_name ],
+                        from_    = [ self.schemaName ],
                         where    = where_,
                         order_by = 'time_job_comp'
         )
@@ -262,7 +259,6 @@ class Query(GrafanaRequest):
     def getTimeseries(self, metrics, **kwargs):
         # Return a mean timeseries of given metric(s) over the bin_width
         try:
-            self.schema = self.cont.schema_by_name(self.schemaName)
             filters_ = self.parseFilters(kwargs)
             where_ = []
             for attr in filters_:
@@ -273,14 +269,14 @@ class Query(GrafanaRequest):
                             order_by=self.index
             )
             data = self.src.get_df(limit=1000000, index='timestamp')
-            if len(data) > self.maxDataPoints:
+            if type(data) == pd.core.frame.DataFrame and len(data) > self.maxDataPoints:
                 bin_width = ceil((kwargs['end'] - kwargs['start']) / self.maxDataPoints)
                 data['timestamp'] = pd.to_datetime(data['timestamp'])
                 res = data.resample(str(bin_width)+'S').mean()
+                res['timestamp'] = res.index
             else:
                 res = data
             # Formatter expects series named timestamp
-            res['timestamp'] = res.index
             return res
         except Exception as e:
             a, b, c = sys.exc_info()
