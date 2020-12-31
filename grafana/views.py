@@ -148,7 +148,7 @@ class grafanaView(View):
                             content_type='application/json')
 
     def get_uid(self):
-        if len(self.targets[self.t_cnt]['user_name']) != 0:
+        if self.targets[self.t_cnt]['user_name'] != None:
             pw = pwd.getpwnam(self.targets[self.t_cnt]['user_name'])
             user_id = pw.pw_uid
         else:
