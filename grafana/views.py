@@ -8,8 +8,7 @@ from sosdb import Sos
 import traceback as tb
 import datetime as dt
 import _strptime
-import time
-import sys
+import pwd, sys, time
 from . import models_sos
 import numpy as np
 import importlib

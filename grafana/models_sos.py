@@ -99,7 +99,8 @@ class GrafanaRequest:
 class Search(GrafanaRequest):
     def __init__(self, cont, schemaName, index='time_job_comp'):
         super().__init__(cont, schemaName, index)
-        self.schema = cont.schema_by_name(self.schema_name)
+        if schemaName is not None:
+            self.schema = cont.schema_by_name(schemaName)
 
     def getSchema(self):
         self.schemas = {}
@@ -117,17 +118,17 @@ class Search(GrafanaRequest):
                 indices[name] = name
         return indices
 
-    def getMetrics(self, cont, schema_name):
+    def getMetrics(self):
         attrs = {}
         for attr in self.schema:
             if attr.type() != Sos.TYPE_JOIN:
                 name = attr.name()
                 attrs[name] = name
-        if schema_name == 'papi-events':
+        if self.schemaName == 'papi-events':
             attrs.update(papi_derived_metrics)
         return attrs
 
-    def getComponents(self, cont, schema_name, start, end):
+    def getComponents(self, start, end):
         attr = self.schema.attr_by_name("component_id")
         if attr is None:
             return {0}
@@ -150,7 +151,7 @@ class Search(GrafanaRequest):
             result[str(int(comp_id))] = int(comp_id)
         return result
 
-    def getJobs(self, cont, schema_name, start, end):
+    def getJobs(self, start, end):
         # method to retrieve unique job_ids
         attr = self.schema.attr_by_name("job_id")
         if attr is None:
