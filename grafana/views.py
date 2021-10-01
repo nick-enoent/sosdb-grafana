@@ -31,20 +31,11 @@ def converter(obj):
         elif isinstance(obj, dt.datetime):
             return obj.__str__()
 
-def get_container(cont_name):
-    try:
-        global log
-        log = _log.MsgLog('GrafanaViews')
-        path = settings.SOS_ROOT + '/' + cont_name
-        cont = Sos.Container(path)
-        return cont
-    except:
-        cont = None
-        return cont
-
 def close_container(cont):
-    cont.close()
-    del cont
+    # both sos and dsos use the same method call to close a cont
+    if cont is not None:
+        cont.close()
+        del cont
 
 def parse_referer_date(s):
     if s == "now":
@@ -108,10 +99,21 @@ class QueryParameters(object):
 class grafanaView(View):
     def __init__(self):
         super().__init__()
-        self.req_handling = {
+        self.dsos_req_handling = {
             'analysis' : self.get_analysis,
             'metrics'  : self.get_timeseries
         }
+
+    def get_dsos_container(self):
+        try:
+            global log
+            log = _log.MsgLog('get_dsos_container')
+            cont_path = settings.DSOS_ROOT + '/' + self.targets[self.t_cnt]['container']
+            self.dsos = Sos.Session(settings.DSOS_CONF)
+            cont = self.dsos.open(cont_path)
+            return cont
+        except:
+            return None
 
     def parse_params(self):
         date_range = self.req['range']
@@ -127,15 +129,34 @@ class grafanaView(View):
         # Limit formatter to first query format in request
         self.fmt = self.targets[0]['format']
 
+    def parse_filters(self):
+        self.filters = {}
+        if self.targets[self.t_cnt]['filters'] is not None:
+            for filter_ in self.targets[self.t_cnt]['filters']:
+                filter_ = filter_.split('=')
+                self.filters[filter_[0]] = filter_[1]
+        else:
+            self.filters = None
+
+    def get_filters(self):
+        if self.targets[self.t_cnt]['filters'] is not None:
+            return self.targets[self.t_cnt]['filters']
+        else:
+            return []
+
     def post(self, request):
         body = request.body
         self.req = json.loads(body)
         self.parse_params()
         self.t_cnt = 0
         res = []
-        self.cont = get_container(self.targets[self.t_cnt]['container'])
+        self.cont = self.get_dsos_container()
+        if self.cont is None:
+            res = { "target" : "The container failed to open",  "datapoints" : [] }
+            return HttpResponse(json.dumps(res, default=converter), content_type='application/json')
         for target in self.targets:
-            result  = self.req_handling[target['query_type']]()
+            self.parse_filters()
+            result  = self.dsos_req_handling[target['query_type']]()
             self.t_cnt += 1
             if type(result) == list:
                 for _res in result:
@@ -157,17 +178,13 @@ class grafanaView(View):
     def get_analysis(self):
         try:
             res = None
-            module = importlib.import_module('graf_analysis.'+ self.targets[self.t_cnt]['analysis'])
-            class_ = getattr(module, self.targets[self.t_cnt]['analysis'])
+            module = importlib.import_module('graf_analysis.'+ self.targets[self.t_cnt]['analysis_module'])
+            class_ = getattr(module, self.targets[self.t_cnt]['analysis_module'])
             model = class_(self.cont, int(self.startTS), int(self.endTS),
                            schema = self.targets[self.t_cnt]['schema'],
                            maxDataPoints = self.maxDataPoints)
             metrics = parse_glob(self.targets[self.t_cnt]['target'])
-            job_id = self.targets[self.t_cnt]['job_id']
-            res = model.get_data(metrics,
-                                 job_id=self.targets[self.t_cnt]['job_id'],
-                                 user_id=self.get_uid(),
-                                 params=self.targets[self.t_cnt]['extra_params'])
+            res = model.get_data(metrics, self.get_filters())
 
             # Get formatter module
             fmtr_module = importlib.import_module('graf_analysis.'+self.fmt+'_formatter')
@@ -179,29 +196,20 @@ class grafanaView(View):
         except Exception as e:
             a, b, c = sys.exc_info()
             log.write(str(e)+' '+str(c.tb_lineno))
-            res = [ {"columns" : [{ "text" : str(e) }] } ]
+            res = {"target" : str(e), "datapoints" : [] }
             return res
 
     def get_timeseries(self):
         try:
             metrics = parse_glob(self.targets[self.t_cnt]['target'])
-            model = models_sos.Query(self.cont,
-                                     self.targets[self.t_cnt]['schema'], index='time_job_comp')
-            if self.targets[self.t_cnt]['extra_params'] == 'by_component':
-                res = model.getCompTimeseries(metrics,
-                                              start=self.startTS, end=self.endTS,
-                                              intervalMs=self.intervalMs,
-                                              maxDataPoints=self.maxDataPoints,
-                                              comp_id=self.targets[self.t_cnt]['comp_id'],
-                                              job_id=self.targets[self.t_cnt]['job_id']
-            )
-            else:
-                res = model.getTimeseries(metrics,
-                                          start=self.startTS, end=self.endTS,
-                                          intervalMs=self.intervalMs,
-                                          maxDataPoints=self.maxDataPoints,
-                                          comp_id=self.targets[self.t_cnt]['comp_id'],
-                                          job_id=self.targets[self.t_cnt]['job_id']
+            model = models_sos.DSosQuery(self.cont,
+                                     self.targets[self.t_cnt]['schema'],
+                                     index='time_job_comp')
+            res = model.getTimeseries(metrics,
+                                      start=self.startTS, end=self.endTS,
+                                      intervalMs=self.intervalMs,
+                                      maxDataPoints=self.maxDataPoints,
+                                      **(self.filters or {})
             )
             # Get formatter module
             fmtr_module = importlib.import_module('graf_analysis.'+self.fmt+'_formatter')

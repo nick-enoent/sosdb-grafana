@@ -70,11 +70,12 @@ papi_derived_metrics = {
 }
 
 filter_op_map = {
-    "start"   : Sos.COND_GE,
-    "end"     : Sos.COND_LE,
-    "comp_id" : Sos.COND_EQ,
-    "job_id"  : Sos.COND_EQ,
-    "user_id" : Sos.COND_EQ
+    "start"        : ">=",
+    "end"          : "<=",
+    "comp_id"      : "==",
+    "component_id" : "==",
+    "job_id"       : "==",
+    "user_id"      : "=="
 }
 
 filter_attr_map = {
@@ -85,18 +86,17 @@ filter_attr_map = {
     "user_id" : "user_id"
 }
 
-class GrafanaRequest:
+class GrafanaDSosRequest:
     def __init__(self, cont, schemaName, index):
         self.cont = cont
         self.schemaName = schemaName
         self.index = index
         self.maxDataPoints = 4096
-        self.src = SosDataSource()
-        self.src.config(cont=self.cont)
+        self.query = Sos.SqlQuery(cont, 1000)
 
 # Class to handle template variable query requests for schemas,
 # metrics, components, and jobs
-class Search(GrafanaRequest):
+class Search(GrafanaDSosRequest):
     def __init__(self, cont, schemaName, index='time_job_comp'):
         super().__init__(cont, schemaName, index)
         if schemaName is not None:
@@ -175,7 +175,70 @@ class Search(GrafanaRequest):
             result[str(int(job_id))] = int(job_id)
         return result
 
-class Query(GrafanaRequest):
+class DSosQuery(GrafanaDSosRequest):
+    def __init__(self, cont, schemaName, index='time_job_comp'):
+        super().__init__(cont, schemaName, index)
+
+    def checkIndex(self):
+        # Check default index 'time_job_comp' exists in schema
+        # Otherwise assign first indexed attribute with 'time' in the name
+        self.schema_attrs =  []
+        attrs = []
+        for attr in self.cont.schema_by_name(self.schemaName):
+            self.schema_attrs.append(attr.name())
+            if attr.is_indexed():
+                attrs.append(attr.name())
+        if self.index in attrs:
+            pass
+        else:
+            for attr in attrs:
+                if 'time' in attr:
+                    self.index = attr.name()
+                    break
+
+    def parseFilters(self, kwargs):
+        # Construct "where" clause for DSos query
+        # Remove null parameters, and assign filters to attributes present in schema
+        #self.checkIndex()
+        _filters = {}
+        for attr in kwargs:
+            if attr in filter_op_map:
+                if kwargs[attr] != None:
+                    _filters[attr] = kwargs[attr]
+        return _filters
+
+    def getTimeseries(self, metrics, **kwargs):
+        # Return a mean timeseries of given metric(s) over the bin_width
+        try:
+            filters_ = self.parseFilters(kwargs)
+            where_ = ""
+            n = 0
+            for attr in filters_:
+                if n > 0:
+                    where_ += " AND "
+                where_ += filter_attr_map[attr] + " " + filter_op_map[attr] + str(kwargs[attr])
+                n += 1
+            metric_str = ""
+            for metric in metrics:
+                if metric_str != "":
+                    metric_str += ","
+                metric_str += metric
+            select_clause = "SELECT "+metric_str+" FROM "+self.schemaName+" WHERE "+where_
+            self.query.select(select_clause)
+            df = self.query.next()
+            if df is None:
+                return None
+            res = df.copy(deep=True)
+            while df is not None:
+                df = self.query.next()
+                res = pd.concat([res, df])
+            return res
+        except Exception as e:
+            a, b, c = sys.exc_info()
+            log.write("getTimeseries Error: {0} line no {1}".format(e, c.tb_lineno))
+            return None
+
+class Query(GrafanaDSosRequest):
     def __init__(self, cont, schemaName, index='time_job_comp'):
         super().__init__(cont, schemaName, index)
 
@@ -265,7 +328,7 @@ class Query(GrafanaRequest):
             for attr in filters_:
                 where_.append([filter_attr_map[attr], filter_op_map[attr], kwargs[attr]])
             self.src.select(metrics + [ 'timestamp' ],
-                            from_=[ self.schemaName ],
+                            from_= [ self.schemaName ],
                             where = where_,
                             order_by=self.index
             )
@@ -288,7 +351,18 @@ class Query(GrafanaRequest):
                           start=0, end=0,
                           intervalMs=1000,
                           maxDataPoints=4096,
-                          comp_id=None, job_id=None):
+                          **kwargs):
+        filters_ = self.parseFilters(kwargs)
+        if 'comp_id' in filters_:
+            comp_id = filters_["comp_id"]
+        elif "component_id" in filters_:
+            comp_id = filters_["component_id"]
+        else:
+            return [{ "target" : "Error: by_component requires a valid component_id", "datapoints" : [] }]
+        if 'job_id' in filters_:
+            job_id = filters_["job_id"]
+        else:
+            job_id = None
         """Return time series data for a particular component/s"""
         if type(metricNames) != list:
             metricNames = [ metricNames ]
@@ -406,7 +480,7 @@ class Query(GrafanaRequest):
             log.write('PapiLikeJobs '+str(e)+' '+str(c.tb_lineno))
             return None
 
-class Annotations(GrafanaRequest):
+class Annotations(GrafanaDSosRequest):
     def __init__(self, cont, schemaName, index='time_job_comp'):
         super().__init__(cont, schemaName, index)
 
