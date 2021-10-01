@@ -109,13 +109,10 @@ export class SosDatasource {
 		target: this.templateSrv.replace(target.target) || null,
 		container: this.templateSrv.replace(target.container) || null,
 		schema: this.templateSrv.replace(target.schema) || null,
-		job_id: this.templateSrv.replace(target.job_id) || null,
-		comp_id: this.templateSrv.replace(target.comp_id) || null,
-                user_name: this.templateSrv.replace(target.user_name) || null,
 		query_type: this.templateSrv.replace(target.query_type) || 'metrics',
 		format: this.templateSrv.replace(target.format) || 'time_series',
-                analysis: this.templateSrv.replace(target.analysis) || null,
-                extra_params: this.templateSrv.replace(target.extra_params) || null,
+                analysis_module: this.templateSrv.replace(target.analysis) || null,
+                filters: this.templateSrv.replace(target.filters) || null,
 		refId: target.refId,
 		hide: target.hide
 	    };

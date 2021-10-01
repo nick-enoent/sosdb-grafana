@@ -15,13 +15,10 @@ export class SosDatasourceQueryCtrl extends QueryCtrl {
         this.target.target = this.target.target || null;
         this.target.container = this.target.container || null;
         this.target.schema = this.target.schema || null;
-        this.target.job_id = this.target.job_id || null;
-        this.target.comp_id = this.target.comp_id || null;
-        this.target.user_name = this.target.user_name || null;
         this.target.query_type = this.target.query_type || 'metrics';
-        this.target.analysis = this.target.analysis || null;
+        this.target.analysis_module = this.target.analysis_module || null;
         this.target.format = this.target.format || 'time_series';
-        this.target.extra_params = this.target.extra_params || null;
+        this.target.filters = this.target.filters || null;
 
         this.panelCtrl.events.on('data-received', this.onDataReceived.bind(this), $scope);
         this.panelCtrl.events.on('data-error', this.onDataError.bind(this), $scope);
