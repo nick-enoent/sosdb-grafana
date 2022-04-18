@@ -106,19 +106,15 @@ export class SosDatasource {
 	//remove placeholder targets
 	var targets = _.map(options.targets, target => {
 	    return {
-		target: this.templateSrv.replace(target.target),
-		container: this.templateSrv.replace(target.container),
-		schema: this.templateSrv.replace(target.schema),
-		job_id: this.templateSrv.replace(target.job_id),
-		comp_id: this.templateSrv.replace(target.comp_id),
-                user_name: this.templateSrv.replace(target.user_name),
+		target: this.templateSrv.replace(target.target) || null,
+		container: this.templateSrv.replace(target.container) || null,
+		schema: this.templateSrv.replace(target.schema) || null,
 		query_type: this.templateSrv.replace(target.query_type) || 'metrics',
 		format: this.templateSrv.replace(target.format) || 'time_series',
-                analysis: this.templateSrv.replace(target.analysis),
-                extra_params: this.templateSrv.replace(target.extra_params),
+                analysis_module: this.templateSrv.replace(target.analysis) || null,
+                filters: this.templateSrv.replace(target.filters) || null,
 		refId: target.refId,
-		hide: target.hide,
-		type: target.type || 'timeserie'
+		hide: target.hide
 	    };
 	});
 

@@ -1,4 +1,4 @@
-<query-editor-row query-ctrl="ctrl" can-collapse="true" class="sos-datasource-query-row" has-text-edit-mode="true">
+<query-editor-row query-ctrl="ctrl" class="sos-datasource-query-row" has-text-edit-mode="true">
   <div class="gf-form-inline">
 
     <div class="gf-form max-width-20">
@@ -6,7 +6,7 @@
         Format
       </label>
           <select ng-model="ctrl.target.format" class="gf-form-input" placeholder="format"
-    	          ng-options="qt as qt for qt in [ 'time_series', 'table' ]"
+    	          ng-options="qt as qt for qt in [ 'time_series', 'table', 'heatmap' ]"
                   data-min-length=0 data-items=100
                   ng-blur="ctrl.onChangeInternal()">
           </select>
@@ -27,37 +27,6 @@
       </label>
       <input type="text" class="gf-form-input" spellcheck='false' ng-model='ctrl.target.schema'
                                                placeholder="schema name"
-                                               data-min-length=0 data-items=100
-                                               ng-blur="ctrl.onChangeInternal()">
-      </input>
-    </div>
-    <div class="gf-form max-width-20">
-      <label class="gf-form-label query-keyword width-8">
-        Job ID
-      </label>
-      <input type="text" class="gf-form-input" spellcheck='false' ng-model='ctrl.target.job_id'
-                                               placeholder="job id"
-                                               data-min-length=0 data-items=100
-                                               ng-blur="ctrl.onChangeInternal()">
-      </input>
-    </div>
-    <div class="gf-form max-width-20">
-      <label class="gf-form-label query-keyword width-8">
-        Comp ID
-      </label>
-      <input type="text" class="gf-form-input" spellcheck='false' ng-model='ctrl.target.comp_id'
-                                               placeholder="component id"
-                                               data-min-length=0 data-items=100
-                                               ng-blur="ctrl.onChangeInternal()">
-      </input>
-    </div>
-
-    <div class="gf-form max-width-20">
-      <label class="gf-form-label query-keyword width-8">
-        User Name
-      </label>
-      <input type="text" class="gf-form-input" spellcheck='false' ng-model='ctrl.target.user_name'
-                                               placeholder="user name"
                                                data-min-length=0 data-items=100
                                                ng-blur="ctrl.onChangeInternal()">
       </input>
@@ -86,7 +55,7 @@
     </div>
     <div class="gf-form max-width-20">
       <label class="gf-form-label query-keyword width-8">Analysis</label>
-      <input type="text" class="gf-form-input" spellcheck="false" ng-model="ctrl.target.analysis"
+      <input type="text" class="gf-form-input" spellcheck="false" ng-model="ctrl.target.analysis_module"
                                                placeholder="analysis module"
                                                data-min-length=0 data-items=100
                                                ng-blur="ctrl.onChangeInternal()">
@@ -94,11 +63,11 @@
 
     </div>
     <div class="gf-form max-width-20">
-      <label class="gf-form-label query-keyword width-9">
+      <label class="gf-form-label query-keyword width-8">
         Extra Parameters
       </label>
-      <input type="text" class="gf-form-input" spellcheck="false" ng-model="ctrl.target.extra_params"
-                                               placeholder="extra parameters"
+      <input type="text" class="gf-form-input" spellcheck="false" ng-model="ctrl.target.filters"
+                                               placeholder="Filter Parameters"
                                                data-min-length=0 data-items=100
                                                ng-blur="ctrl.onChangeInternal()">
       </input>

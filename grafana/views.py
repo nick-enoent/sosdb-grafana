@@ -8,8 +8,7 @@ from sosdb import Sos
 import traceback as tb
 import datetime as dt
 import _strptime
-import time
-import sys
+import pwd, sys, time
 from . import models_sos
 import numpy as np
 import importlib
@@ -32,20 +31,11 @@ def converter(obj):
         elif isinstance(obj, dt.datetime):
             return obj.__str__()
 
-def get_container(cont_name):
-    try:
-        global log
-        log = _log.MsgLog('GrafanaViews')
-        path = settings.SOS_ROOT + '/' + cont_name
-        cont = Sos.Container(path)
-        return cont
-    except:
-        cont = None
-        return cont
-
 def close_container(cont):
-    cont.close()
-    del cont
+    # both sos and dsos use the same method call to close a cont
+    if cont is not None:
+        cont.close()
+        del cont
 
 def parse_referer_date(s):
     if s == "now":
@@ -109,10 +99,21 @@ class QueryParameters(object):
 class grafanaView(View):
     def __init__(self):
         super().__init__()
-        self.req_handling = {
+        self.dsos_req_handling = {
             'analysis' : self.get_analysis,
             'metrics'  : self.get_timeseries
         }
+
+    def get_dsos_container(self):
+        try:
+            global log
+            log = _log.MsgLog('get_dsos_container')
+            cont_path = settings.DSOS_ROOT + '/' + self.targets[self.t_cnt]['container']
+            self.dsos = Sos.Session(settings.DSOS_CONF)
+            cont = self.dsos.open(cont_path)
+            return cont
+        except:
+            return None
 
     def parse_params(self):
         date_range = self.req['range']
@@ -125,6 +126,23 @@ class grafanaView(View):
         self.maxDataPoints = self.req['maxDataPoints']
         # Each target represents an independent query
         self.targets = self.req['targets']
+        # Limit formatter to first query format in request
+        self.fmt = self.targets[0]['format']
+
+    def parse_filters(self):
+        self.filters = {}
+        if self.targets[self.t_cnt]['filters'] is not None:
+            for filter_ in self.targets[self.t_cnt]['filters']:
+                filter_ = filter_.split('=')
+                self.filters[filter_[0]] = filter_[1]
+        else:
+            self.filters = None
+
+    def get_filters(self):
+        if self.targets[self.t_cnt]['filters'] is not None:
+            return self.targets[self.t_cnt]['filters']
+        else:
+            return []
 
     def post(self, request):
         body = request.body
@@ -132,9 +150,13 @@ class grafanaView(View):
         self.parse_params()
         self.t_cnt = 0
         res = []
-        self.cont = get_container(self.targets[self.t_cnt]['container'])
+        self.cont = self.get_dsos_container()
+        if self.cont is None:
+            res = { "target" : "The container failed to open",  "datapoints" : [] }
+            return HttpResponse(json.dumps(res, default=converter), content_type='application/json')
         for target in self.targets:
-            result  = self.req_handling[target['query_type']]()
+            self.parse_filters()
+            result  = self.dsos_req_handling[target['query_type']]()
             self.t_cnt += 1
             if type(result) == list:
                 for _res in result:
@@ -146,7 +168,7 @@ class grafanaView(View):
                             content_type='application/json')
 
     def get_uid(self):
-        if len(self.targets[self.t_cnt]['user_name']) != 0:
+        if self.targets[self.t_cnt]['user_name'] != None:
             pw = pwd.getpwnam(self.targets[self.t_cnt]['user_name'])
             user_id = pw.pw_uid
         else:
@@ -156,23 +178,17 @@ class grafanaView(View):
     def get_analysis(self):
         try:
             res = None
-            module = importlib.import_module('graf_analysis.'+ self.targets[self.t_cnt]['analysis'])
-            class_ = getattr(module, self.targets[self.t_cnt]['analysis'])
+            module = importlib.import_module('graf_analysis.'+ self.targets[self.t_cnt]['analysis_module'])
+            class_ = getattr(module, self.targets[self.t_cnt]['analysis_module'])
             model = class_(self.cont, int(self.startTS), int(self.endTS),
                            schema = self.targets[self.t_cnt]['schema'],
                            maxDataPoints = self.maxDataPoints)
             metrics = parse_glob(self.targets[self.t_cnt]['target'])
-            job_id = self.targets[self.t_cnt]['job_id']
-            res = model.get_data(metrics,
-                                 job_id=self.targets[self.t_cnt]['job_id'],
-                                 user_id=self.get_uid(),
-                                 params=self.targets[self.t_cnt]['extra_params'])
+            res = model.get_data(metrics, self.get_filters())
 
-            # Limit formatter to first query format in request
-            fmt = self.targets[0]['format']
             # Get formatter module
-            fmtr_module = importlib.import_module('graf_analysis.'+fmt+'_formatter')
-            fmtr_class = getattr(fmtr_module, fmt+'_formatter')
+            fmtr_module = importlib.import_module('graf_analysis.'+self.fmt+'_formatter')
+            fmtr_class = getattr(fmtr_module, self.fmt+'_formatter')
             fmtr = fmtr_class(res)
             res = fmtr.ret_json()
             return res
@@ -180,20 +196,26 @@ class grafanaView(View):
         except Exception as e:
             a, b, c = sys.exc_info()
             log.write(str(e)+' '+str(c.tb_lineno))
-            res = [ {"columns" : [{ "text" : str(e) }] } ]
+            res = {"target" : str(e), "datapoints" : [] }
             return res
 
     def get_timeseries(self):
         try:
             metrics = parse_glob(self.targets[self.t_cnt]['target'])
-            model = models_sos.Query(self.cont,
-                                     self.targets[self.t_cnt]['schema'], index='time_job_comp')
-            res = model.getCompTimeseries(self.targets[self.t_cnt]['comp_id'],
-                                             metrics,
-                                             self.startTS, self.endTS,
-                                             self.intervalMs,
-                                             self.maxDataPoints, 
-                                             self.targets[self.t_cnt]['job_id'])
+            model = models_sos.DSosQuery(self.cont,
+                                     self.targets[self.t_cnt]['schema'],
+                                     index='time_job_comp')
+            res = model.getTimeseries(metrics,
+                                      start=self.startTS, end=self.endTS,
+                                      intervalMs=self.intervalMs,
+                                      maxDataPoints=self.maxDataPoints,
+                                      **(self.filters or {})
+            )
+            # Get formatter module
+            fmtr_module = importlib.import_module('graf_analysis.'+self.fmt+'_formatter')
+            fmtr_class = getattr(fmtr_module, self.fmt+'_formatter')
+            fmtr = fmtr_class(res)
+            res = fmtr.ret_json()
             return res
         except Exception as e:
             a, b, c = sys.exc_info()
@@ -246,26 +268,26 @@ def search(request):
         if cont is None:
             raise ValueError("Error: The container {0} could not be opened.".format(cont_name))
 
-        model = models_sos.Search(cont)
         resp = {}
 
         schema = parms['schema']
         query = parms['query']
+        model = models_sos.Search(cont, schema)
         if query.lower() != "schema" and schema is None:
             if schema is None:
                 raise ValueError("Error: The 'schema' parameter is missing from the search.")
                 return HttpResponse(json.dumps(["Error", "Schema is required"]), content_type='application/json')
 
         if query.lower() == "schema":
-            resp = model.getSchema(cont)
+            resp = model.getSchema()
         elif query.lower() == "index":
-            resp = model.getIndices(cont, schema)
+            resp = model.getIndices()
         elif query.lower() == "metrics":
-            resp = model.getMetrics(cont, schema)
+            resp = model.getMetrics()
         elif query.lower() == "components":
-            resp = model.getComponents(cont, schema, start, end)
+            resp = model.getComponents(start, end)
         elif query.lower() == "jobs":
-            resp = model.getJobs(cont, schema, start, end)
+            resp = model.getJobs(start, end)
 
         close_container(cont)
         return HttpResponse(json.dumps(resp), content_type = 'application/json')
