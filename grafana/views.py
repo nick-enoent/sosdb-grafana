@@ -11,6 +11,7 @@ import _strptime
 import pwd, sys, time
 from . import models_sos
 import numpy as np
+import re
 import importlib
 import json
 
@@ -103,13 +104,16 @@ class grafanaView(View):
             'analysis' : self.get_analysis,
             'metrics'  : self.get_timeseries
         }
+        self.DSOS_CONF = getattr(settings, 'DSOS_CONF', None)
+        self.DSOS_ROOT = getattr(settings, 'DSOS_ROOT', None)
 
     def get_dsos_container(self):
         try:
             global log
             log = _log.MsgLog('get_dsos_container')
-            cont_path = settings.DSOS_ROOT + '/' + self.targets[self.t_cnt]['container']
-            self.dsos = Sos.Session(settings.DSOS_CONF)
+            cont_name = self.targets[self.t_cnt]['container']
+            cont_path = self.DSOS_ROOT + '/' + cont_name
+            self.dsos = Sos.Session(self.DSOS_CONF)
             cont = self.dsos.open(cont_path)
             return cont
         except:
@@ -129,18 +133,11 @@ class grafanaView(View):
         # Limit formatter to first query format in request
         self.fmt = self.targets[0]['format']
 
-    def parse_filters(self):
-        self.filters = {}
-        if self.targets[self.t_cnt]['filters'] is not None:
-            for filter_ in self.targets[self.t_cnt]['filters']:
-                filter_ = filter_.split('=')
-                self.filters[filter_[0]] = filter_[1]
-        else:
-            self.filters = None
-
     def get_filters(self):
         if self.targets[self.t_cnt]['filters'] is not None:
-            return self.targets[self.t_cnt]['filters']
+            filters = self.targets[self.t_cnt]['filters']
+            filters = re.split(''',(?=(?:[^'"]|'[^']*'|"[^"]*")*$)''', filters)
+            return filters
         else:
             return []
 
@@ -155,7 +152,6 @@ class grafanaView(View):
             res = { "target" : "The container failed to open",  "datapoints" : [] }
             return HttpResponse(json.dumps(res, default=converter), content_type='application/json')
         for target in self.targets:
-            self.parse_filters()
             result  = self.dsos_req_handling[target['query_type']]()
             self.t_cnt += 1
             if type(result) == list:
@@ -184,7 +180,8 @@ class grafanaView(View):
                            schema = self.targets[self.t_cnt]['schema'],
                            maxDataPoints = self.maxDataPoints)
             metrics = parse_glob(self.targets[self.t_cnt]['target'])
-            res = model.get_data(metrics, self.get_filters())
+            params = self.targets[self.t_cnt]['extra_params']
+            res = model.get_data(metrics, self.get_filters(), params=params)
 
             # Get formatter module
             fmtr_module = importlib.import_module('graf_analysis.'+self.fmt+'_formatter')
@@ -203,14 +200,10 @@ class grafanaView(View):
         try:
             metrics = parse_glob(self.targets[self.t_cnt]['target'])
             model = models_sos.DSosQuery(self.cont,
-                                     self.targets[self.t_cnt]['schema'],
-                                     index='time_job_comp')
-            res = model.getTimeseries(metrics,
-                                      start=self.startTS, end=self.endTS,
-                                      intervalMs=self.intervalMs,
-                                      maxDataPoints=self.maxDataPoints,
-                                      **(self.filters or {})
-            )
+                                         start=self.startTS, end=self.endTS,
+                                         schemaName=self.targets[self.t_cnt]['schema'],
+                                         index='time_job_comp')
+            res = model.getTimeseries(metrics, filters=self.get_filters())
             # Get formatter module
             fmtr_module = importlib.import_module('graf_analysis.'+self.fmt+'_formatter')
             fmtr_class = getattr(fmtr_module, self.fmt+'_formatter')
