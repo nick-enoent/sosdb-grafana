@@ -20,7 +20,7 @@ job_status_str = {
     2 : "complete"
 }
 
-papi_metrics = [ 
+papi_metrics = [
     "PAPI_TOT_INS",
     "PAPI_TOT_CYC",
     "PAPI_LD_INS",
@@ -36,7 +36,7 @@ papi_metrics = [
     "PAPI_L3_TCM"
 ]
 
-event_name_map = { 
+event_name_map = {
     "PAPI_TOT_INS" : "tot_ins",
     "PAPI_TOT_CYC" : "tot_cyc",
     "PAPI_LD_INS"  : "ld_ins",
@@ -87,12 +87,21 @@ filter_attr_map = {
 }
 
 class GrafanaDSosRequest:
-    def __init__(self, cont, schemaName, index):
+    def __init__(self, cont, start, end, schemaName, index):
         self.cont = cont
+        self.start = float(start)
+        self.end = float(end)
         self.schemaName = schemaName
         self.index = index
-        self.maxDataPoints = 4096
-        self.query = Sos.SqlQuery(cont, 1000)
+        self.maxDataPoints = 100000
+        self.query = Sos.SqlQuery(cont, self.maxDataPoints)
+
+    def get_where(self, filters):
+        where_clause = f'where (timestamp > {self.start}) and (timestamp < {self.end})'
+        if filters is not None:
+            where_clause += ' and '
+            where_clause += filters
+        return where_clause
 
 # Class to handle template variable query requests for schemas,
 # metrics, components, and jobs
@@ -176,8 +185,8 @@ class Search(GrafanaDSosRequest):
         return result
 
 class DSosQuery(GrafanaDSosRequest):
-    def __init__(self, cont, schemaName, index='time_job_comp'):
-        super().__init__(cont, schemaName, index)
+    def __init__(self, cont, start, end, schemaName, index='time_job_comp'):
+        super().__init__(cont, start, end, schemaName, index)
 
     def checkIndex(self):
         # Check default index 'time_job_comp' exists in schema
@@ -196,34 +205,17 @@ class DSosQuery(GrafanaDSosRequest):
                     self.index = attr.name()
                     break
 
-    def parseFilters(self, kwargs):
-        # Construct "where" clause for DSos query
-        # Remove null parameters, and assign filters to attributes present in schema
-        #self.checkIndex()
-        _filters = {}
-        for attr in kwargs:
-            if attr in filter_op_map:
-                if kwargs[attr] != None:
-                    _filters[attr] = kwargs[attr]
-        return _filters
-
-    def getTimeseries(self, metrics, **kwargs):
+    def getTimeseries(self, metrics, filters=None):
         # Return a mean timeseries of given metric(s) over the bin_width
         try:
-            filters_ = self.parseFilters(kwargs)
-            where_ = ""
+            where_ = self.get_where(filters)
             n = 0
-            for attr in filters_:
-                if n > 0:
-                    where_ += " AND "
-                where_ += filter_attr_map[attr] + " " + filter_op_map[attr] + str(kwargs[attr])
-                n += 1
             metric_str = ""
             for metric in metrics:
                 if metric_str != "":
                     metric_str += ","
                 metric_str += metric
-            select_clause = "SELECT "+metric_str+" FROM "+self.schemaName+" WHERE "+where_
+            select_clause = f"SELECT {metric_str} FROM {self.schemaName} {where_}"
             self.query.select(select_clause)
             df = self.query.next()
             if df is None:
@@ -239,8 +231,8 @@ class DSosQuery(GrafanaDSosRequest):
             return None
 
 class Query(GrafanaDSosRequest):
-    def __init__(self, cont, schemaName, index='time_job_comp'):
-        super().__init__(cont, schemaName, index)
+    def __init__(self, cont, start, end, schemaName, index='time_job_comp'):
+        super().__init__(cont, start, end, schemaName, index)
 
     def parseFilters(self, kwargs):
         # Construct "where" clause for SosDataSource
