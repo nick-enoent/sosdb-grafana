@@ -8,7 +8,6 @@ AM_CONFIG_HEADER(config.h)
 AM_INIT_AUTOMAKE([foreign])
 AM_PATH_PYTHON([3.6])
 
-gplugin=/var/lib/grafana/plugins/sosds
 distdir=${PACKAGE_NAME}-${PACKAGE_VERSION}
 
 AC_SUBST(prefix)
@@ -28,6 +27,5 @@ AC_CONFIG_FILES([
         Makefile
         sosgui/Makefile
         grafana/Makefile
-        sosds/Makefile
         ])
 AC_OUTPUT

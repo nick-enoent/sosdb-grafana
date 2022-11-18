@@ -2,14 +2,14 @@ Overview
 ========
 
 This is a django project that provides SOS support for Grafana. It relies on sosdb-ui
-SOS, and apache.
+DSOS, and apache.
 
 Installation
 ============
 Install Dependencies:
     sosdb-ui
     SOS
-    sosds (Grafana datasource for SOS)
+    dsosds (Grafana datasource for DSOS)
     Grafana
 
 Install package from source
@@ -22,6 +22,12 @@ cd build
 ../configure --prefix=<default /var/www/ovis_web_svcs>
 make
 make install
+
+Grafana Configuration
+======================
+Configure grafana for your deployment.
+Ensure to include the line "allow_loading_unsigned_plugins = dsosds" in the grafana configuration file.
+If excluded, the dsosds plugin will not be loaded into grafana.
 
 ## SOS JSON Datasource
 ========================
