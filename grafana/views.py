@@ -104,8 +104,14 @@ class grafanaView(View):
             'analysis' : self.get_analysis,
             'metrics'  : self.get_timeseries
         }
+        self.dsos = None
         self.DSOS_CONF = getattr(settings, 'DSOS_CONF', None)
         self.DSOS_ROOT = getattr(settings, 'DSOS_ROOT', None)
+
+    def __del__(self):
+        if self.dsos:
+            self.dsos.close()
+            self.dsos = None
 
     def get_dsos_container(self):
         try:
@@ -160,6 +166,9 @@ class grafanaView(View):
             else:
                 res.append(result)
         close_container(self.cont)
+        if self.dsos:
+            self.dsos.close()
+            self.dsos = None
         return HttpResponse(json.dumps(res, default=converter),
                             content_type='application/json')
 

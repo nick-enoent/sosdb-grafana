@@ -99,8 +99,8 @@ class GrafanaDSosRequest:
     def get_where(self, filters):
         where_clause = f'where (timestamp > {self.start}) and (timestamp < {self.end})'
         if filters is not None:
-            where_clause += ' and '
-            where_clause += filters
+            for filt in filters:
+                where_clause += f' and ({filt})'
         return where_clause
 
 # Class to handle template variable query requests for schemas,
@@ -209,7 +209,6 @@ class DSosQuery(GrafanaDSosRequest):
         # Return a mean timeseries of given metric(s) over the bin_width
         try:
             where_ = self.get_where(filters)
-            n = 0
             metric_str = ""
             for metric in metrics:
                 if metric_str != "":
