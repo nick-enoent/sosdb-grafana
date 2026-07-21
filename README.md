@@ -9,7 +9,7 @@ Installation
 Install Dependencies:
     sosdb-ui
     SOS
-    sosds (Grafana datasource for SOS)
+    dsosds (Grafana datasource for SOS)
     Grafana
 
 Install package from source
@@ -66,7 +66,7 @@ Query Type:
 		- requires job_id
 	papi_timeseries
 		- returns time_series data for papi metrics
-	
+
 Analysis:
 	- text input by user
 	- user defined python analytics module. pre-packaged modules currently include:
@@ -91,13 +91,13 @@ Analysis:
 		- returns sum of metrics provided per second ( Bytes per second )
 		Extra Parameters:
 			- threshold=<threshold>
-				
+
 			- meta
 				- must be included before "threshold" in query parameters e.g.
 					"meta&threshold=10"
 				- returns sum of metrics provided per second
 				  ( Inputs/Outputs per second )
-				
+
 Extra Parameters: Extra arguments used when analysis other than metric is selected
 
 
@@ -106,18 +106,18 @@ Example response
 ``` javascript
 [
   {
-    "target":"current_freemem", // The field being queried for 
+    "target":"current_freemem", // The field being queried for
     "datapoints":[
       [622,1450754160000],  // Metric value as a float , unixtimestamp in milliseconds
       [365,1450754220000]
-    ]   
-  },  
+    ]
+  },
   {
     "target":"nrx_RDMA",
     "datapoints":[
       [861,1450754160000],
       [767,1450754220000]
-    ]   
+    ]
   }
 ]
 ```
