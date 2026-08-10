@@ -218,7 +218,23 @@ class grafanaView(View):
             fmtr_class = getattr(fmtr_module, self.fmt+'_formatter')
             fmtr = fmtr_class(res)
             res = fmtr.ret_json()
-            return res
+            # res is [ metric, component_id, job_id ],
+            #     metric['target'] contains metric name
+            #     metric['datapoints'] contains datapoints
+            #     component_id['datapoints'] contains comp_id
+            #     job_id['datapoints'] contains job_id
+            # a 'datapoint' is ( value, ts )
+            # Now we want to returns series grouped by component_id
+            metric_data = res[0]['datapoints']
+            comp_data = res[1]['datapoints']
+            job_data = res[2]['datapoints']
+            series = dict()
+            for mm, cc, jj in zip(metric_data, comp_data, job_data):
+                c = cc[0]
+                s = series.setdefault(c, list())
+                s.append(mm)
+            ret = [ {"target": f"{metrics[0]} - {k}", "datapoints": v} for k, v in series.items() ]
+            return ret
         except Exception as e:
             a, b, c = sys.exc_info()
             log.write(str(e)+' '+str(c.tb_lineno))
